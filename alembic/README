@@ -1,0 +1,4 @@
+Migraciones de la base de datos. La URL se toma de DATABASE_URL (ver app/config.py).
+
+Crear una migración:   uv run alembic revision --autogenerate -m "descripcion"
+Aplicar migraciones:   uv run alembic upgrade head
