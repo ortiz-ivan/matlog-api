@@ -2,6 +2,7 @@
 
     uv run python -m app.cli crear-bd [--superusuario postgres]
     uv run python -m app.cli crear-usuario --nombre "Juan" --email juan@mail.com [--admin]
+    uv run python -m app.cli seed
 """
 
 import argparse
@@ -16,6 +17,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models import Usuario
 from app.security import hash_password
+from app.seed import cargar_datos_iniciales
 
 
 def crear_bd(superusuario: str) -> None:
@@ -72,6 +74,12 @@ def crear_usuario(nombre: str, email: str, password: str, es_admin: bool) -> Non
     print(f"Usuario {email} creado{' (admin)' if es_admin else ''}")
 
 
+def seed() -> None:
+    with SessionLocal() as db:
+        turnos, tecnicas = cargar_datos_iniciales(db)
+    print(f"Turnos creados: {turnos}. Técnicas creadas: {tecnicas}.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -84,9 +92,14 @@ def main() -> None:
     crear.add_argument("--email", required=True)
     crear.add_argument("--admin", action="store_true", help="puede gestionar usuarios y borrar")
 
+    sub.add_parser("seed", help="Carga turnos y técnicas iniciales (solo los que falten)")
+
     args = parser.parse_args()
     if args.comando == "crear-bd":
         crear_bd(args.superusuario)
+        return
+    if args.comando == "seed":
+        seed()
         return
 
     password = getpass.getpass("Contraseña (mín. 8 caracteres): ")

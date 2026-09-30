@@ -266,3 +266,21 @@ def test_eliminar_tecnica_la_quita_de_las_clases(client, usuario, admin):
 
     assert client.delete(f"/api/tecnicas/{armbar['id']}", headers=admin).status_code == 204
     assert client.get(f"/api/clases/{clase['id']}", headers=usuario).json()["tecnicas"] == []
+
+
+# --- Datos iniciales ---
+
+
+def test_seed_es_idempotente(client, db, usuario):
+    from app.seed import TECNICAS, TURNOS, cargar_datos_iniciales
+
+    _tecnica(client, usuario, "omoplata")  # ya existe (con otra capitalización)
+
+    assert cargar_datos_iniciales(db) == (len(TURNOS), len(TECNICAS) - 1)
+    assert cargar_datos_iniciales(db) == (0, 0)
+
+    turnos = client.get("/api/turnos", headers=usuario).json()
+    assert [(t["nombre"], t["hora_inicio"]) for t in turnos] == [
+        ("Turno 1", "19:30:00"),
+        ("Turno 2", "20:30:00"),
+    ]

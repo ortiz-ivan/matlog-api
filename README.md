@@ -17,6 +17,7 @@ uv sync                                   # instala dependencias
 cp .env.example .env                      # y completar los valores CAMBIAR
 uv run python -m app.cli crear-bd         # crea usuario y bases de .env (pide la contraseña del superusuario)
 uv run alembic upgrade head               # crea las tablas
+uv run python -m app.cli seed             # turnos y técnicas iniciales (idempotente)
 uv run python -m app.cli crear-usuario --nombre "Juan" --email juan@mail.com --admin  # primer admin
 uv run fastapi dev app/main.py            # http://localhost:8000/docs
 ```
@@ -42,7 +43,8 @@ app/
 ├── schemas.py       # modelos Pydantic de entrada/salida
 ├── security.py      # hashing de contraseñas y JWT
 ├── deps.py          # dependencias: sesión, usuario actual, solo admin
-├── cli.py           # crear-bd y crear-usuario desde la terminal
+├── cli.py           # crear-bd, crear-usuario y seed desde la terminal
+├── seed.py          # turnos de la academia y biblioteca base de técnicas
 └── routers/         # auth, usuarios, turnos, tecnicas, clases
 alembic/             # migraciones
 tests/
