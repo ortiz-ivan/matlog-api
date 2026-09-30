@@ -104,8 +104,8 @@ Las técnicas existen independientemente de las clases para poder reutilizarlas.
 
 ### 5.1 Autenticación
 
-- Registro con nombre, email, contraseña y **código de invitación** (definido en `.env` y compartido con los compañeros). Evita que cualquiera con el enlace cree una cuenta.
-- Login con email y contraseña → JWT.
+- Registro con nombre, nombre de usuario, email, contraseña y **código de invitación** (definido en `.env` y compartido con los compañeros). Evita que cualquiera con el enlace cree una cuenta.
+- Login con **nombre de usuario** y contraseña → JWT. El username no distingue mayúsculas (se guarda en minúsculas) y admite 3–30 caracteres: letras, números, `.`, `-` y `_`. El email se guarda para una futura recuperación de contraseña, pero no sirve para entrar.
 - Permisos: usuario normal / admin.
 - Sin recuperación de contraseña: si alguien la olvida, un admin se la resetea.
 
@@ -168,6 +168,7 @@ Nueva clase → turno → tema → técnicas → guardar
 ```text
 id
 nombre
+username         (único, minúsculas; para iniciar sesión)
 email            (único)
 password_hash
 cinturon         BLANCO | AZUL | MORADO | MARRON | NEGRO (opcional)

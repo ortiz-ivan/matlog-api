@@ -23,11 +23,14 @@ def registro(datos: Registro, db: DB):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Código de invitación incorrecto")
 
     email = datos.email.lower()
+    if db.scalar(select(Usuario.id).where(Usuario.username == datos.username)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ese nombre de usuario ya está en uso")
     if db.scalar(select(Usuario.id).where(func.lower(Usuario.email) == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Ya existe un usuario con ese email")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ya existe una cuenta con ese email")
 
     usuario = Usuario(
         nombre=datos.nombre,
+        username=datos.username,
         email=email,
         password_hash=hash_password(datos.password),
         cinturon=datos.cinturon,
@@ -39,16 +42,15 @@ def registro(datos: Registro, db: DB):
 
 @router.post("/login", response_model=Token)
 def login(db: DB, form: Annotated[OAuth2PasswordRequestForm, Depends()]):
-    # OAuth2 llama "username" al campo; aquí es el email.
     usuario = db.scalar(
-        select(Usuario).where(func.lower(Usuario.email) == form.username.lower())
+        select(Usuario).where(Usuario.username == form.username.strip().lower())
     )
     if (
         usuario is None
         or not usuario.activo
         or not verificar_password(form.password, usuario.password_hash)
     ):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email o contraseña incorrectos")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario o contraseña incorrectos")
     return Token(access_token=crear_token(usuario.id))
 
 

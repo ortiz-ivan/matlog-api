@@ -52,10 +52,11 @@ def client(db):
     app.dependency_overrides.clear()
 
 
-def _crear_usuario(db, email: str, es_admin: bool = False) -> Usuario:
+def _crear_usuario(db, username: str, es_admin: bool = False) -> Usuario:
     usuario = Usuario(
-        nombre=email.split("@")[0],
-        email=email,
+        nombre=username,
+        username=username,
+        email=f"{username}@matlog.test",
         password_hash=hash_password(PASSWORD),
         es_admin=es_admin,
     )
@@ -64,19 +65,19 @@ def _crear_usuario(db, email: str, es_admin: bool = False) -> Usuario:
     return usuario
 
 
-def _headers(client, email: str) -> dict[str, str]:
-    r = client.post("/api/auth/login", data={"username": email, "password": PASSWORD})
+def _headers(client, username: str) -> dict[str, str]:
+    r = client.post("/api/auth/login", data={"username": username, "password": PASSWORD})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 @pytest.fixture
 def admin(client, db):
-    _crear_usuario(db, "admin@matlog.test", es_admin=True)
-    return _headers(client, "admin@matlog.test")
+    _crear_usuario(db, "admin", es_admin=True)
+    return _headers(client, "admin")
 
 
 @pytest.fixture
 def usuario(client, db):
-    _crear_usuario(db, "usuario@matlog.test")
-    return _headers(client, "usuario@matlog.test")
+    _crear_usuario(db, "usuario")
+    return _headers(client, "usuario")

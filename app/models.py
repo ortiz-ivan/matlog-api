@@ -91,6 +91,8 @@ class Usuario(Timestamps, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(100))
+    # Identificador para iniciar sesión; siempre en minúsculas.
+    username: Mapped[str] = mapped_column(String(30), unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     cinturon: Mapped[Cinturon | None] = mapped_column(_enum(Cinturon))

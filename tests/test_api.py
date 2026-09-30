@@ -27,6 +27,7 @@ def _clase(client, headers, **datos):
 def _registro(client, **extra):
     datos = {
         "nombre": "Iván",
+        "username": "Ivan.Ortiz",
         "email": "Ivan@Mail.com",
         "password": PASSWORD,
         "codigo_invitacion": CODIGO,
@@ -43,20 +44,34 @@ def test_registro_con_codigo(client):
     headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
     me = client.get("/api/auth/me", headers=headers).json()
+    assert me["username"] == "ivan.ortiz"
     assert me["email"] == "ivan@mail.com"
     assert me["es_admin"] is False
 
-    r = client.post("/api/auth/login", data={"username": "IVAN@mail.com", "password": PASSWORD})
+    # El username no distingue mayúsculas; el email ya no sirve para entrar.
+    r = client.post("/api/auth/login", data={"username": "IVAN.ortiz", "password": PASSWORD})
     assert r.status_code == 200
+    r = client.post("/api/auth/login", data={"username": "ivan@mail.com", "password": PASSWORD})
+    assert r.status_code == 401
 
 
 def test_registro_codigo_incorrecto(client):
     assert _registro(client, codigo_invitacion="otro-codigo").status_code == 403
 
 
-def test_registro_email_duplicado(client):
+def test_registro_duplicados(client):
     assert _registro(client).status_code == 201
-    assert _registro(client, email="ivan@mail.com").status_code == 409
+    r = _registro(client, email="otro@mail.com", username="IVAN.ORTIZ")
+    assert r.status_code == 409
+    assert "usuario" in r.json()["detail"]
+    r = _registro(client, email="ivan@mail.com", username="otro")
+    assert r.status_code == 409
+    assert "email" in r.json()["detail"]
+
+
+def test_registro_username_invalido(client):
+    for username in ("ab", "con espacio", "ñandú", "x" * 31):
+        assert _registro(client, username=username).status_code == 422, username
 
 
 def test_registro_no_permite_hacerse_admin(client):
@@ -66,9 +81,7 @@ def test_registro_no_permite_hacerse_admin(client):
 
 
 def test_login_incorrecto(client, usuario):
-    r = client.post(
-        "/api/auth/login", data={"username": "usuario@matlog.test", "password": "otra-cosa"}
-    )
+    r = client.post("/api/auth/login", data={"username": "usuario", "password": "otra-cosa"})
     assert r.status_code == 401
 
 

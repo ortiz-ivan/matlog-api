@@ -1,7 +1,8 @@
 """Comandos de administración. La configuración se toma de .env.
 
     uv run python -m app.cli crear-bd [--superusuario postgres]
-    uv run python -m app.cli crear-usuario --nombre "Juan" --email juan@mail.com [--admin]
+    uv run python -m app.cli crear-usuario --nombre "Juan" --username juan --email juan@mail.com [--admin]
+    uv run python -m app.cli cambiar-password --username juan
     uv run python -m app.cli seed
 """
 
@@ -10,12 +11,14 @@ import getpass
 import sys
 
 import psycopg
+from pydantic import TypeAdapter, ValidationError
 from psycopg import sql
 from sqlalchemy import func, select
 
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Usuario
+from app.schemas import Username
 from app.security import hash_password
 from app.seed import cargar_datos_iniciales
 
@@ -57,21 +60,47 @@ def crear_bd(superusuario: str) -> None:
             print(f"Base '{nombre}' creada")
 
 
-def crear_usuario(nombre: str, email: str, password: str, es_admin: bool) -> None:
+def crear_usuario(nombre: str, username: str, email: str, password: str, es_admin: bool) -> None:
+    try:
+        username = TypeAdapter(Username).validate_python(username)
+    except ValidationError:
+        sys.exit("Username inválido: 3-30 caracteres (letras, números, punto, guion o guion bajo)")
     email = email.lower()
     with SessionLocal() as db:
+        if db.scalar(select(Usuario.id).where(Usuario.username == username)):
+            sys.exit(f"El username {username} ya está en uso")
         if db.scalar(select(Usuario.id).where(func.lower(Usuario.email) == email)):
-            sys.exit(f"Ya existe un usuario con el email {email}")
+            sys.exit(f"Ya existe una cuenta con el email {email}")
         db.add(
             Usuario(
                 nombre=nombre,
+                username=username,
                 email=email,
                 password_hash=hash_password(password),
                 es_admin=es_admin,
             )
         )
         db.commit()
-    print(f"Usuario {email} creado{' (admin)' if es_admin else ''}")
+    print(f"Usuario {username} creado{' (admin)' if es_admin else ''}")
+
+
+def pedir_password() -> str:
+    password = getpass.getpass("Contraseña (mín. 8 caracteres): ")
+    if len(password) < 8:
+        sys.exit("La contraseña debe tener al menos 8 caracteres")
+    if getpass.getpass("Repite la contraseña: ") != password:
+        sys.exit("Las contraseñas no coinciden")
+    return password
+
+
+def cambiar_password(username: str, password: str) -> None:
+    with SessionLocal() as db:
+        usuario = db.scalar(select(Usuario).where(Usuario.username == username.strip().lower()))
+        if usuario is None:
+            sys.exit(f"No existe el usuario {username}")
+        usuario.password_hash = hash_password(password)
+        db.commit()
+    print(f"Contraseña de {usuario.username} actualizada")
 
 
 def seed() -> None:
@@ -89,8 +118,12 @@ def main() -> None:
 
     crear = sub.add_parser("crear-usuario", help="Crea un usuario de la app")
     crear.add_argument("--nombre", required=True)
+    crear.add_argument("--username", required=True, help="para iniciar sesión")
     crear.add_argument("--email", required=True)
     crear.add_argument("--admin", action="store_true", help="puede gestionar usuarios y borrar")
+
+    cambiar = sub.add_parser("cambiar-password", help="Cambia la contraseña de un usuario")
+    cambiar.add_argument("--username", required=True)
 
     sub.add_parser("seed", help="Carga turnos y técnicas iniciales (solo los que falten)")
 
@@ -101,11 +134,12 @@ def main() -> None:
     if args.comando == "seed":
         seed()
         return
+    if args.comando == "cambiar-password":
+        cambiar_password(args.username, pedir_password())
+        return
 
-    password = getpass.getpass("Contraseña (mín. 8 caracteres): ")
-    if len(password) < 8:
-        sys.exit("La contraseña debe tener al menos 8 caracteres")
-    crear_usuario(args.nombre, args.email, password, args.admin)
+    password = pedir_password()
+    crear_usuario(args.nombre, args.username, args.email, password, args.admin)
 
 
 if __name__ == "__main__":

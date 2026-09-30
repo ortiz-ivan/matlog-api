@@ -3,6 +3,7 @@ from typing import Annotated, Self
 
 from pydantic import (
     AfterValidator,
+    BeforeValidator,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -16,6 +17,17 @@ from app.models import Categoria, Cinturon, Modalidad, Posicion
 # Se valida como URL pero se guarda como texto plano.
 Url = Annotated[HttpUrl, AfterValidator(str)]
 Password = Annotated[str, Field(min_length=8, max_length=128)]
+# Se normaliza a minúsculas antes de validar: "Ivan.Ortiz" y "ivan.ortiz" son el mismo.
+Username = Annotated[
+    str,
+    BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v),
+    Field(
+        min_length=3,
+        max_length=30,
+        pattern=r"^[a-z0-9._-]+$",
+        description="3-30 caracteres: letras, números, punto, guion o guion bajo",
+    ),
+]
 
 
 class Esquema(BaseModel):
@@ -44,6 +56,7 @@ class UsuarioResumen(Esquema):
 
 
 class UsuarioOut(UsuarioResumen):
+    username: str
     email: str
     cinturon: Cinturon | None
     es_admin: bool
@@ -52,6 +65,7 @@ class UsuarioOut(UsuarioResumen):
 
 class Registro(BaseModel):
     nombre: str = Field(min_length=1, max_length=100)
+    username: Username
     email: EmailStr
     password: Password
     cinturon: Cinturon | None = None

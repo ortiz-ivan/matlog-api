@@ -18,11 +18,12 @@ cp .env.example .env                      # y completar los valores CAMBIAR
 uv run python -m app.cli crear-bd         # crea usuario y bases de .env (pide la contraseña del superusuario)
 uv run alembic upgrade head               # crea las tablas
 uv run python -m app.cli seed             # turnos y técnicas iniciales (idempotente)
-uv run python -m app.cli crear-usuario --nombre "Juan" --email juan@mail.com --admin  # primer admin
+uv run python -m app.cli crear-usuario --nombre "Juan" --username juan --email juan@mail.com --admin  # primer admin
+# uv run python -m app.cli cambiar-password --username juan  # si alguien olvida la contraseña
 uv run fastapi dev app/main.py            # http://localhost:8000/docs
 ```
 
-En `/docs`, el botón **Authorize** permite hacer login (el campo `username` es el email).
+En `/docs`, el botón **Authorize** permite hacer login con el nombre de usuario.
 
 ## Tests
 
