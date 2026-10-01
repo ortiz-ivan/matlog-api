@@ -57,7 +57,8 @@ La plataforma la gestionan los propios alumnos: no hay rol de profesor. Todos lo
 - Registrarse con el código de invitación de la academia.
 - Consultar y filtrar clases.
 - Buscar técnicas y ver en qué clases aparecieron.
-- **Crear y editar** clases, técnicas y turnos.
+- **Editar** clases (p. ej. añadir una técnica que faltó o las notas).
+- **Crear y editar** técnicas.
 
 Cada clase guarda quién la registró (`creado_por`).
 
@@ -65,8 +66,10 @@ Cada clase guarda quién la registró (`creado_por`).
 
 Todo lo anterior, y además:
 
+- **Registrar** clases nuevas.
+- Gestionar los **turnos** y el horario semanal (días y modalidad).
 - **Borrar** clases y técnicas, y desactivar turnos (protege contra borrados accidentales).
-- Gestionar usuarios: desactivar cuentas, resetear contraseñas y nombrar otros admins.
+- Gestionar usuarios desde la pantalla "Usuarios" (menú de perfil): darlos de alta con una contraseña inicial, desactivar cuentas, resetear contraseñas y nombrar otros admins.
 
 Un admin no puede quitarse el admin ni desactivarse a sí mismo, para que la plataforma nunca se quede sin administrador. El primer admin se crea por línea de comandos.
 
@@ -107,7 +110,8 @@ Las técnicas existen independientemente de las clases para poder reutilizarlas.
 - Registro con nombre, nombre de usuario, email, contraseña y **código de invitación** (definido en `.env` y compartido con los compañeros). Evita que cualquiera con el enlace cree una cuenta.
 - Login con **nombre de usuario** y contraseña → JWT. El username no distingue mayúsculas (se guarda en minúsculas) y admite 3–30 caracteres: letras, números, `.`, `-` y `_`. El email se guarda para una futura recuperación de contraseña, pero no sirve para entrar.
 - Permisos: usuario normal / admin.
-- Sin recuperación de contraseña: si alguien la olvida, un admin se la resetea.
+- Cada usuario cambia su nombre, cinturón y contraseña en "Mi perfil" (cambiar la contraseña exige la actual).
+- Sin recuperación de contraseña por email: si alguien la olvida, un admin le pone una nueva.
 
 ### 5.2 Listado de clases
 
@@ -142,7 +146,7 @@ Vista en 3 clases
 
 ### 5.5 Registro de clases
 
-Formulario (cualquier usuario):
+Formulario (solo admins):
 
 - Fecha.
 - Turno (el horario se toma del turno si no se indica).
@@ -190,6 +194,16 @@ creado_en
 actualizado_en
 ```
 
+### turno_dias
+
+Horario semanal: qué días hay clase en cada turno y con qué modalidad.
+
+```text
+turno_id         → turnos
+dia              0 = lunes ... 6 = domingo
+modalidad        GI | NO_GI
+```
+
 ### tecnicas
 
 ```text
@@ -235,6 +249,7 @@ tecnica_id       → tecnicas
 ```text
 Usuario  1 ─── N Clases (creado_por)
 Turno    1 ─── N Clases
+Turno    1 ─── N TurnoDias (horario semanal)
 Clase    N ─── N Técnicas
 ```
 
@@ -306,21 +321,26 @@ PostgreSQL (desarrollo y producción)
 POST /api/auth/registro     (público, requiere código de invitación)
 POST /api/auth/login
 GET  /api/auth/me
+PATCH /api/auth/me          (nombre y cinturón propios)
+PUT  /api/auth/me/password  (exige la contraseña actual)
 ```
 
 ### Usuarios (admin)
 
 ```http
-GET   /api/usuarios
-PATCH /api/usuarios/{id}
+GET   /api/usuarios?q=ana&limit=20&offset=0   (paginado; busca por nombre o usuario)
+GET   /api/usuarios/{id}
+POST  /api/usuarios                           (alta con contraseña inicial; puede crear admins)
+PATCH /api/usuarios/{id}                      (nombre, cinturón, admin, activo, contraseña)
 ```
 
 ### Turnos
 
 ```http
 GET    /api/turnos
-POST   /api/turnos
-PUT    /api/turnos/{id}
+GET    /api/turnos/{id}
+POST   /api/turnos          (admin; incluye "dias": [{"dia": 0, "modalidad": "GI"}, ...])
+PUT    /api/turnos/{id}     (admin)
 DELETE /api/turnos/{id}     (admin; desactiva)
 ```
 
@@ -339,7 +359,7 @@ DELETE /api/tecnicas/{id}           (admin)
 ```http
 GET    /api/clases?desde=2026-09-01&hasta=2026-09-30&turno_id=3&modalidad=GI&instructor=juan&tecnica_id=7
 GET    /api/clases/{id}
-POST   /api/clases
+POST   /api/clases          (admin)
 PUT    /api/clases/{id}
 DELETE /api/clases/{id}     (admin)
 ```
@@ -424,7 +444,7 @@ Las estadísticas registran actividad, no competencia técnica real.
 
 ## 14. Criterio de éxito del MVP
 
-1. Un alumno registra una clase en menos de 2 minutos.
+1. Un admin registra una clase en menos de 2 minutos.
 2. Puede seleccionar varias técnicas existentes o crear una nueva.
 3. Un alumno puede consultar y filtrar las clases anteriores.
 4. Un alumno puede buscar una técnica y ver en qué clases apareció.
