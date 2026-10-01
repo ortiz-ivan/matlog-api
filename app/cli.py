@@ -105,10 +105,10 @@ def cambiar_password(username: str, password: str) -> None:
 
 def seed() -> None:
     with SessionLocal() as db:
-        turnos, tecnicas, descripciones = cargar_datos_iniciales(db)
+        turnos, horarios, tecnicas, descripciones = cargar_datos_iniciales(db)
     print(
-        f"Turnos creados: {turnos}. Técnicas creadas: {tecnicas}. "
-        f"Descripciones añadidas: {descripciones}."
+        f"Turnos creados: {turnos}. Horarios completados: {horarios}. "
+        f"Técnicas creadas: {tecnicas}. Descripciones añadidas: {descripciones}."
     )
 
 

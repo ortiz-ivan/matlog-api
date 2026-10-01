@@ -124,13 +124,13 @@ def test_admin_no_puede_quitarse_el_admin(client, admin):
 # --- Turnos ---
 
 
-def test_turno_horario_invalido(client, usuario):
+def test_turno_horario_invalido(client, usuario, admin):
     datos = {"nombre": "Mal", "hora_inicio": "20:00", "hora_fin": "19:00"}
-    assert client.post("/api/turnos", json=datos, headers=usuario).status_code == 422
+    assert client.post("/api/turnos", json=datos, headers=admin).status_code == 422
 
 
 def test_turno_desactivado_no_se_lista(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     assert client.delete(f"/api/turnos/{turno['id']}", headers=admin).status_code == 204
     assert client.get("/api/turnos", headers=usuario).json() == []
     todos = client.get("/api/turnos?incluir_inactivos=true", headers=usuario).json()
@@ -172,7 +172,7 @@ def test_tecnica_video_url_invalida(client, usuario):
 
 
 def test_crear_clase_toma_horario_del_turno(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     armbar = _tecnica(client, usuario, "Armbar")
     triangulo = _tecnica(client, usuario, "Triángulo")
 
@@ -195,7 +195,7 @@ def test_crear_clase_toma_horario_del_turno(client, usuario, admin):
     assert [t["nombre"] for t in clase["tecnicas"]] == ["Armbar", "Triángulo"]
 
 def test_solo_admins_registran_clases(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     datos = {"fecha": "2026-09-30", "turno_id": turno["id"], "tema": "Guardia"}
     r = client.post("/api/clases", json=datos, headers=usuario)
     assert r.status_code == 403
@@ -203,7 +203,7 @@ def test_solo_admins_registran_clases(client, usuario, admin):
 
 
 def test_crear_clase_con_referencias_inexistentes(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     base = {"fecha": "2026-09-30", "tema": "X"}
     r = client.post("/api/clases", json=base | {"turno_id": 999}, headers=admin)
     assert r.status_code == 422
@@ -214,8 +214,8 @@ def test_crear_clase_con_referencias_inexistentes(client, usuario, admin):
 
 
 def test_filtrar_clases(client, usuario, admin):
-    manana = _turno(client, usuario, nombre="Mañana", hora_inicio="07:00", hora_fin="08:30")
-    noche = _turno(client, usuario)
+    manana = _turno(client, admin, nombre="Mañana", hora_inicio="07:00", hora_fin="08:30")
+    noche = _turno(client, admin)
     omoplata = _tecnica(client, usuario, "Omoplata")
 
     _clase(client, admin, fecha="2026-09-01", turno_id=manana["id"], tema="Pasajes",
@@ -249,7 +249,7 @@ def test_filtrar_clases(client, usuario, admin):
 
 
 def test_clases_de_una_tecnica_paginadas(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     omoplata = _tecnica(client, usuario, "Omoplata")
     for fecha in ("2026-09-02", "2026-09-30"):
         _clase(
@@ -271,7 +271,7 @@ def test_clases_de_una_tecnica_paginadas(client, usuario, admin):
 
 
 def test_actualizar_y_eliminar_clase(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     armbar = _tecnica(client, usuario, "Armbar")
     clase = _clase(client, admin, fecha="2026-09-30", turno_id=turno["id"], tema="A",
                    tecnica_ids=[armbar["id"]])
@@ -287,7 +287,7 @@ def test_actualizar_y_eliminar_clase(client, usuario, admin):
 
 
 def test_eliminar_tecnica_la_quita_de_las_clases(client, usuario, admin):
-    turno = _turno(client, usuario)
+    turno = _turno(client, admin)
     armbar = _tecnica(client, usuario, "Armbar")
     clase = _clase(client, admin, fecha="2026-09-30", turno_id=turno["id"], tema="A",
                    tecnica_ids=[armbar["id"]])
@@ -299,7 +299,7 @@ def test_eliminar_tecnica_la_quita_de_las_clases(client, usuario, admin):
 # --- Datos iniciales ---
 
 
-def test_seed_es_idempotente(client, db, usuario):
+def test_seed_es_idempotente(client, db, usuario, admin):
     from app.seed import TECNICAS, TURNOS, cargar_datos_iniciales
 
     # Ya existen (con otra capitalización): una sin descripción y otra escrita a mano.
@@ -312,9 +312,12 @@ def test_seed_es_idempotente(client, db, usuario):
     }
     knee_cut = client.post("/api/tecnicas", json=datos, headers=usuario).json()
 
-    # Crea las 45 restantes y solo completa la descripción vacía.
-    assert cargar_datos_iniciales(db) == (len(TURNOS), len(TECNICAS) - 2, 1)
-    assert cargar_datos_iniciales(db) == (0, 0, 0)
+    # "Turno 1" ya existe sin horario: se le completa; "Turno 2" se crea entero.
+    _turno(client, admin, nombre="turno 1", hora_inicio="19:30", hora_fin="20:30")
+
+    # Crea las 45 técnicas restantes y solo completa la descripción vacía.
+    assert cargar_datos_iniciales(db) == (len(TURNOS) - 1, 1, len(TECNICAS) - 2, 1)
+    assert cargar_datos_iniciales(db) == (0, 0, 0, 0)
 
     def descripcion(t):
         return client.get(f"/api/tecnicas/{t['id']}", headers=usuario).json()["descripcion"]
@@ -325,10 +328,12 @@ def test_seed_es_idempotente(client, db, usuario):
     assert sin_descripcion == []
 
     turnos = client.get("/api/turnos", headers=usuario).json()
-    assert [(t["nombre"], t["hora_inicio"]) for t in turnos] == [
-        ("Turno 1", "19:30:00"),
-        ("Turno 2", "20:30:00"),
+    assert [(t["nombre"].lower(), t["hora_inicio"]) for t in turnos] == [
+        ("turno 1", "19:30:00"),
+        ("turno 2", "20:30:00"),
     ]
+    lunes_a_sabado = [{"dia": d, "modalidad": "GI"} for d in range(6)]
+    assert all(t["dias"] == lunes_a_sabado for t in turnos)
 
 
 # --- Gestión de usuarios (admin) ---
@@ -450,3 +455,38 @@ def test_cambiar_password_exige_la_actual(client, usuario):
     assert "actual" in r.json()["detail"]
     assert cambiar(PASSWORD, PASSWORD).status_code == 400  # igual que la actual
     assert cambiar(PASSWORD, "corta").status_code == 422  # menos de 8
+
+
+# --- Horario semanal de los turnos ---
+
+
+def test_turno_con_horario_semanal(client, admin, usuario):
+    dias = [{"dia": 0, "modalidad": "GI"}, {"dia": 3, "modalidad": "NO_GI"}]
+    turno = _turno(client, admin, dias=dias)
+    assert turno["dias"] == dias
+
+    # Mantener el lunes cambiando su modalidad, quitar el jueves y añadir el sábado.
+    nuevos = [{"dia": 5, "modalidad": "GI"}, {"dia": 0, "modalidad": "NO_GI"}]
+    datos = {"nombre": "Noche", "hora_inicio": "19:00", "hora_fin": "20:30", "dias": nuevos}
+    r = client.put(f"/api/turnos/{turno['id']}", json=datos, headers=admin)
+    assert r.status_code == 200, r.text
+    assert r.json()["dias"] == [{"dia": 0, "modalidad": "NO_GI"}, {"dia": 5, "modalidad": "GI"}]
+
+    # Cualquiera puede consultarlo.
+    r = client.get(f"/api/turnos/{turno['id']}", headers=usuario)
+    assert r.json()["dias"] == [{"dia": 0, "modalidad": "NO_GI"}, {"dia": 5, "modalidad": "GI"}]
+
+
+def test_turno_horario_invalido_o_repetido(client, admin):
+    base = {"nombre": "X", "hora_inicio": "19:00", "hora_fin": "20:00"}
+    for dias in ([{"dia": 7}], [{"dia": -1}], [{"dia": 1}, {"dia": 1, "modalidad": "NO_GI"}]):
+        r = client.post("/api/turnos", json=base | {"dias": dias}, headers=admin)
+        assert r.status_code == 422, dias
+
+
+def test_solo_admins_cambian_turnos(client, admin, usuario):
+    datos = {"nombre": "X", "hora_inicio": "19:00", "hora_fin": "20:00"}
+    assert client.post("/api/turnos", json=datos, headers=usuario).status_code == 403
+    turno = _turno(client, admin)
+    r = client.put(f"/api/turnos/{turno['id']}", json=datos, headers=usuario)
+    assert r.status_code == 403

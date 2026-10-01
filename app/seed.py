@@ -2,6 +2,7 @@
 
 Es idempotente y no pisa cambios hechos desde la app:
 - inserta los turnos y técnicas que falten (comparando por nombre);
+- en los turnos que ya existen, solo pone el horario semanal si no tienen ninguno;
 - en las técnicas que ya existen, solo rellena la descripción si sigue vacía.
 
 Las descripciones son orientativas: los profesores pueden ajustarlas desde la app.
@@ -13,12 +14,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Categoria as C
+from app.models import Modalidad
 from app.models import Posicion as P
-from app.models import Tecnica, Turno
+from app.models import Tecnica, Turno, TurnoDia
 
+LUNES_A_SABADO = range(6)  # 0 = lunes ... 5 = sábado
+
+# (nombre, inicio, fin, {día de la semana: modalidad})
 TURNOS = [
-    ("Turno 1", time(19, 30), time(20, 30)),
-    ("Turno 2", time(20, 30), time(21, 30)),
+    ("Turno 1", time(19, 30), time(20, 30), {d: Modalidad.GI for d in LUNES_A_SABADO}),
+    ("Turno 2", time(20, 30), time(21, 30), {d: Modalidad.GI for d in LUNES_A_SABADO}),
 ]
 
 # (nombre, categoría, posición, descripción)
@@ -317,21 +322,27 @@ TECNICAS: list[tuple[str, C, P, str]] = [
 ]
 
 
-def _existentes(db: Session, columna) -> set[str]:
-    return {nombre.lower() for nombre in db.scalars(select(columna))}
+def _dias(horario: dict[int, Modalidad]) -> list[TurnoDia]:
+    return [TurnoDia(dia=dia, modalidad=modalidad) for dia, modalidad in sorted(horario.items())]
 
 
-def cargar_datos_iniciales(db: Session) -> tuple[int, int, int]:
-    """Inserta lo que falte y completa descripciones vacías.
+def cargar_datos_iniciales(db: Session) -> tuple[int, int, int, int]:
+    """Inserta lo que falte y completa horarios y descripciones vacíos.
 
-    Devuelve (turnos creados, técnicas creadas, descripciones añadidas).
+    Devuelve (turnos creados, horarios completados, técnicas creadas, descripciones añadidas).
     """
-    turnos = _existentes(db, Turno.nombre)
+    horarios = {nombre.lower(): horario for nombre, _, _, horario in TURNOS}
+    turnos_existentes = {t.nombre.lower(): t for t in db.scalars(select(Turno))}
     nuevos_turnos = [
-        Turno(nombre=nombre, hora_inicio=inicio, hora_fin=fin)
-        for nombre, inicio, fin in TURNOS
-        if nombre.lower() not in turnos
+        Turno(nombre=nombre, hora_inicio=inicio, hora_fin=fin, dias=_dias(horario))
+        for nombre, inicio, fin, horario in TURNOS
+        if nombre.lower() not in turnos_existentes
     ]
+    horarios_completados = 0
+    for clave, turno in turnos_existentes.items():
+        if clave in horarios and not turno.dias:
+            turno.dias = _dias(horarios[clave])
+            horarios_completados += 1
 
     descripciones = {nombre.lower(): descripcion for nombre, _, _, descripcion in TECNICAS}
     existentes = {t.nombre.lower(): t for t in db.scalars(select(Tecnica))}
@@ -351,4 +362,4 @@ def cargar_datos_iniciales(db: Session) -> tuple[int, int, int]:
 
     db.add_all(nuevos_turnos + nuevas_tecnicas)
     db.commit()
-    return len(nuevos_turnos), len(nuevas_tecnicas), completadas
+    return len(nuevos_turnos), horarios_completados, len(nuevas_tecnicas), completadas

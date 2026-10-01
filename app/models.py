@@ -2,6 +2,7 @@ import enum
 from datetime import date, datetime, time
 
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -109,6 +110,24 @@ class Turno(Timestamps, Base):
     hora_inicio: Mapped[time] = mapped_column(Time)
     hora_fin: Mapped[time] = mapped_column(Time)
     activo: Mapped[bool] = mapped_column(default=True, server_default=true())
+
+    # Días de la semana en que hay clase en este turno, con su modalidad.
+    dias: Mapped[list["TurnoDia"]] = relationship(
+        cascade="all, delete-orphan", order_by="TurnoDia.dia"
+    )
+
+
+class TurnoDia(Base):
+    """Un día de la semana en que se entrena en un turno (0 = lunes ... 6 = domingo)."""
+
+    __tablename__ = "turno_dias"
+    __table_args__ = (CheckConstraint("dia BETWEEN 0 AND 6", name="dia_valido"),)
+
+    turno_id: Mapped[int] = mapped_column(
+        ForeignKey("turnos.id", ondelete="CASCADE"), primary_key=True
+    )
+    dia: Mapped[int] = mapped_column(primary_key=True)
+    modalidad: Mapped[Modalidad] = mapped_column(_enum(Modalidad))
 
 
 class Tecnica(Timestamps, Base):

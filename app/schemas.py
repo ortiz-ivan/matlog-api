@@ -117,10 +117,22 @@ class _ConHorario(BaseModel):
         return self
 
 
+class TurnoDiaSchema(Esquema):
+    dia: int = Field(ge=0, le=6, description="0 = lunes ... 6 = domingo")
+    modalidad: Modalidad = Modalidad.GI
+
+
 class TurnoIn(_ConHorario):
     nombre: str = Field(min_length=1, max_length=100)
     hora_inicio: time
     hora_fin: time
+    dias: list[TurnoDiaSchema] = []
+
+    @model_validator(mode="after")
+    def _dias_sin_repetir(self) -> Self:
+        if len({d.dia for d in self.dias}) != len(self.dias):
+            raise ValueError("Hay días repetidos")
+        return self
 
 
 class TurnoResumen(Esquema):
@@ -132,6 +144,7 @@ class TurnoOut(TurnoResumen):
     hora_inicio: time
     hora_fin: time
     activo: bool
+    dias: list[TurnoDiaSchema]
 
 
 # --- Técnicas ---
