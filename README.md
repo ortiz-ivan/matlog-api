@@ -26,34 +26,75 @@ uv run fastapi dev app/main.py            # http://localhost:8000/docs
 En `/docs`, el botón **Authorize** permite hacer login con el nombre de usuario. La documentación
 solo se sirve con `DOCS_HABILITADAS=true`; en producción debe ir a `false`.
 
-## Producción
+## Producción (Railway)
 
-En `.env`: `DOCS_HABILITADAS=false` y `CORS_ORIGINS` con el dominio real del frontend
-(`https://...`, sin barra final).
+La API se despliega en [Railway](https://railway.com) con el `Dockerfile` del repo
+(`railway.toml` lo indica). Cada push a la rama configurada despliega solo: Railway
+construye la imagen, ejecuta `alembic upgrade head` y, si la migración va bien y
+`/health` responde, cambia a la versión nueva.
 
-Antes de cada despliegue, comprobar que ninguna dependencia tiene vulnerabilidades
-conocidas (debe terminar en "No known vulnerabilities found"):
+### Puesta en marcha
+
+1. En Railway: **New Project → Deploy from GitHub repo** con este repo.
+2. En el proyecto: **New → Database → PostgreSQL**. Es una base nueva y vacía.
+3. En el servicio de la API, pestaña **Variables**:
+
+   | Variable | Valor |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (referencia a la base del proyecto) |
+   | `JWT_SECRET` | Nuevo: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+   | `CODIGO_INVITACION` | Nuevo, distinto del de desarrollo |
+   | `CORS_ORIGINS` | `["https://<proyecto>.pages.dev"]` (el dominio del frontend) |
+   | `DOCS_HABILITADAS` | `false` |
+   | `IP_CLIENTE_CABECERA` | `X-Real-IP` |
+
+   El resto (`JWT_EXPIRE_MINUTES`, `SESION_MAX_DIAS`, `LIMITE_*`) tiene valores por
+   defecto adecuados. **No definir `TEST_DATABASE_URL`**: es la base que pytest borra.
+4. En **Settings → Networking → Generate Domain** para tener la URL pública
+   (`https://<algo>.up.railway.app`). Esa URL es la `VITE_API_URL` del frontend.
+5. Crear el primer admin y cargar los datos iniciales desde una consola en el
+   contenedor (`railway ssh` con la [CLI de Railway](https://docs.railway.com/guides/cli)):
+
+   ```bash
+   python -m app.cli seed
+   python -m app.cli crear-usuario --nombre "Juan" --username juan --email juan@mail.com --admin
+   ```
+
+### Cómo está montado
+
+- **Una sola réplica**: el límite de intentos se guarda en memoria. No subir réplicas.
+- **IP del cliente**: llega en `X-Real-IP`, que pone el proxy de Railway
+  (`IP_CLIENTE_CABECERA`). La app no confía en `X-Forwarded-For` para esto: según
+  cómo enrute Railway, puede incluir valores que manda el propio cliente.
+- **uvicorn** arranca con `--no-server-header` (no anunciar `server: uvicorn`) y
+  `--proxy-headers`, para saber que la petición llegó por HTTPS (cabecera HSTS).
+- **La imagen** instala solo lo que fija `uv.lock` y sin dependencias de desarrollo
+  (`uv sync --locked --no-dev`), y la app corre con un usuario sin privilegios.
+  `.dockerignore` impide que `.env` acabe dentro.
+
+### Antes de cada despliegue
+
+Comprobar que ninguna dependencia tiene vulnerabilidades conocidas (debe terminar en
+"No known vulnerabilities found"):
 
 ```bash
 uv export --no-dev --no-hashes --no-emit-project -q > requirements-audit.txt
 uvx pip-audit -r requirements-audit.txt --no-deps --disable-pip
 ```
 
-En el servidor, instalar exactamente lo que fija `uv.lock` (con sus hashes) y sin las
-dependencias de desarrollo; `--locked` falla si el lock no corresponde a `pyproject.toml`:
+### Sin Railway
+
+El `Dockerfile` sirve igual en cualquier servidor con Docker, detrás de un proxy con
+HTTPS (nginx, Caddy...). Definir `IP_CLIENTE_CABECERA` con la cabecera en la que ese
+proxy ponga la IP del cliente (y asegurarse de que la sobrescribe), o dejarla vacía si
+la API recibe las conexiones directamente. Sin Docker:
 
 ```bash
 uv sync --locked --no-dev
 uv run alembic upgrade head
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000   --no-server-header --proxy-headers --forwarded-allow-ips=127.0.0.1
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-server-header \
+  --proxy-headers --forwarded-allow-ips=127.0.0.1
 ```
-
-- `--no-server-header`: no anunciar `server: uvicorn` (lo añade uvicorn, no la app).
-- `--proxy-headers` y `--forwarded-allow-ips` (la IP del proxy): para que el límite de
-  intentos use la IP real del cliente y la app sepa que la petición llegó por HTTPS
-  (de eso depende la cabecera HSTS).
-- Un solo proceso (sin `--workers`): el límite de intentos se guarda en memoria.
-- HTTPS lo pone el proxy (nginx, Caddy...), que es quien debe exponerse a internet.
 
 ## Tests
 

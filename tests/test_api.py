@@ -903,3 +903,49 @@ def test_cabeceras_de_seguridad_no_pisan_las_de_la_respuesta():
     r = TestClient(CabecerasSeguridad(app_con_cache)).get("/")
     assert r.headers["cache-control"] == "max-age=60"
     assert r.headers["x-content-type-options"] == "nosniff"
+
+
+# --- Despliegue: URL de la base de datos e IP del cliente detrás de un proxy ---
+
+
+@pytest.mark.parametrize("esquema", ["postgresql", "postgres", "postgresql+psycopg"])
+def test_database_url_usa_siempre_psycopg(esquema):
+    # Railway da postgresql://; SQLAlchemy buscaría psycopg2, que no está instalado.
+    s = Settings(database_url=f"{esquema}://u:p@postgres.railway.internal:5432/railway")
+    assert str(s.database_url).startswith("postgresql+psycopg://u:p@postgres.railway.internal")
+
+
+def _fallar_logins(client, n, headers=None, desde=0):
+    # Usernames distintos para no tocar el límite por usuario.
+    for i in range(desde, desde + n):
+        r = client.post(
+            "/api/auth/login", data={"username": f"nadie{i}", "password": "x"}, headers=headers
+        )
+        assert r.status_code == 401
+
+
+def test_sin_cabecera_configurada_no_se_confia_en_x_real_ip(client, usuario):
+    # Un atacante que inventa X-Real-IP en cada intento no debe saltarse el límite.
+    for i in range(settings.limite_fallos_ip):
+        _fallar_logins(client, 1, headers={"X-Real-IP": f"10.0.0.{i}"}, desde=i)
+    r = _login(client, "usuario", PASSWORD)
+    assert r.status_code == 429
+
+
+def test_ip_desde_la_cabecera_del_proxy(client, usuario, monkeypatch):
+    monkeypatch.setattr(settings, "ip_cliente_cabecera", "X-Real-IP")
+    _fallar_logins(client, settings.limite_fallos_ip, headers={"X-Real-IP": "203.0.113.1"})
+
+    bloqueada = client.post(
+        "/api/auth/login",
+        data={"username": "usuario", "password": PASSWORD},
+        headers={"X-Real-IP": "203.0.113.1"},
+    )
+    assert bloqueada.status_code == 429
+    # Otro cliente detrás del mismo proxy no se ve afectado.
+    otra = client.post(
+        "/api/auth/login",
+        data={"username": "usuario", "password": PASSWORD},
+        headers={"X-Real-IP": "198.51.100.7"},
+    )
+    assert otra.status_code == 200

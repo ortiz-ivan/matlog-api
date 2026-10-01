@@ -1,0 +1,13 @@
+# El Dockerfile copia solo lo que necesita; esto es una segunda barrera para que
+# secretos y archivos locales nunca acaben dentro de la imagen.
+.env
+.env.*
+!.env.example
+*.db
+.git
+.venv
+.pytest_cache
+__pycache__
+*.py[cod]
+requirements-audit.txt
+tests

@@ -2,7 +2,7 @@ import re
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, Field, PostgresDsn, SecretStr
+from pydantic import AfterValidator, BeforeValidator, Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,19 @@ def _origen_valido(origen: str) -> str:
 OrigenCors = Annotated[str, AfterValidator(_origen_valido)]
 
 
+def _con_driver_psycopg(url: object) -> object:
+    # Railway (y casi cualquier proveedor) da la URL como postgresql://...; con ese esquema
+    # SQLAlchemy buscaría psycopg2, que no está instalado. Se fuerza psycopg (v3).
+    if isinstance(url, str):
+        for esquema in ("postgresql://", "postgres://"):
+            if url.startswith(esquema):
+                return "postgresql+psycopg://" + url.removeprefix(esquema)
+    return url
+
+
+UrlPostgres = Annotated[PostgresDsn, BeforeValidator(_con_driver_psycopg)]
+
+
 class Settings(BaseSettings):
     """Configuración leída de variables de entorno o del archivo .env.
 
@@ -30,9 +43,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    database_url: PostgresDsn
+    database_url: UrlPostgres
     # Solo la usa pytest; nunca debe apuntar a la base de desarrollo o producción.
-    test_database_url: PostgresDsn | None = None
+    test_database_url: UrlPostgres | None = None
 
     jwt_secret: SecretStr = Field(min_length=32)
     # Solo HMAC: el mismo secreto firma y verifica. Nunca "none".
@@ -50,6 +63,10 @@ class Settings(BaseSettings):
     limite_fallos_usuario: int = Field(default=5, gt=0)
     limite_fallos_ip: int = Field(default=20, gt=0)
     limite_ventana_minutos: int = Field(default=15, gt=0)
+    # Cabecera de la que leer la IP del cliente cuando la app está detrás de un proxy
+    # (X-Real-IP en Railway). Sin valor se usa la IP de la conexión: nunca se confía en
+    # cabeceras que el propio cliente podría inventar para saltarse el límite por IP.
+    ip_cliente_cabecera: str | None = None
 
     # /docs, /redoc y /openapi.json. Sin valor por defecto: hay que decidirlo en cada
     # entorno (true en desarrollo, false en producción).

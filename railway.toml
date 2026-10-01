@@ -1,0 +1,16 @@
+# Configuración de despliegue en Railway (https://docs.railway.com/reference/config-as-code).
+# Las variables de entorno se cargan en el panel del servicio: ver README, sección Railway.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Antes de arrancar cada versión nueva: si una migración falla, no se despliega.
+preDeployCommand = ["alembic upgrade head"]
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# Una sola réplica (la de por defecto): el límite de intentos se guarda en memoria y
+# con varias cada una llevaría su propia cuenta.

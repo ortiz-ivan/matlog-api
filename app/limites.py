@@ -83,8 +83,12 @@ por_usuario = LimiteFallos(settings.limite_fallos_usuario, _ventana)
 
 
 def ip_cliente(request: Request) -> str:
-    # Detrás de un proxy, uvicorn debe arrancar con --proxy-headers y
-    # --forwarded-allow-ips para que esto sea la IP real y no la del proxy.
+    # Detrás de un proxy, la conexión llega desde el proxy: la IP real viene en la
+    # cabecera que este pone (IP_CLIENTE_CABECERA). Solo se lee si está configurada,
+    # porque sin un proxy delante la escribiría el propio cliente.
+    if settings.ip_cliente_cabecera:
+        if valor := request.headers.get(settings.ip_cliente_cabecera):
+            return valor.split(",")[0].strip()[:64]
     return request.client.host if request.client else "desconocida"
 
 
