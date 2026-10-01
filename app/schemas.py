@@ -83,6 +83,18 @@ class UsuarioNuevo(UsuarioCrear):
     es_admin: bool = False
 
 
+class PerfilActualizar(BaseModel):
+    """Lo que cada usuario puede cambiar de sí mismo."""
+
+    nombre: str | None = Field(default=None, min_length=1, max_length=100)
+    cinturon: Cinturon | None = None
+
+
+class CambioPassword(BaseModel):
+    actual: str
+    nueva: Password
+
+
 class UsuarioActualizar(BaseModel):
     """Cambios que puede hacer un admin sobre cualquier usuario."""
 

@@ -394,3 +394,52 @@ def test_actualizar_usuario_ignora_nulos(client, admin):
     assert r.json()["nombre"] == "Ana Pérez"
     assert r.json()["activo"] is True
     assert r.json()["cinturon"] is None
+
+
+# --- Mi perfil ---
+
+
+def test_actualizar_mi_perfil(client, usuario):
+    r = client.patch(
+        "/api/auth/me", json={"nombre": "Nuevo Nombre", "cinturon": "MORADO"}, headers=usuario
+    )
+    assert r.status_code == 200
+    assert r.json()["nombre"] == "Nuevo Nombre"
+    assert r.json()["cinturon"] == "MORADO"
+
+    # Quitar el cinturón; un nombre nulo se ignora.
+    r = client.patch("/api/auth/me", json={"nombre": None, "cinturon": None}, headers=usuario)
+    assert r.json()["nombre"] == "Nuevo Nombre"
+    assert r.json()["cinturon"] is None
+
+
+def test_perfil_no_permite_hacerse_admin(client, usuario):
+    r = client.patch("/api/auth/me", json={"es_admin": True, "activo": False}, headers=usuario)
+    assert r.status_code == 200
+    assert r.json()["es_admin"] is False
+    assert r.json()["activo"] is True
+
+
+def test_cambiar_mi_password(client, usuario):
+    def login(password):
+        return client.post("/api/auth/login", data={"username": "usuario", "password": password})
+
+    r = client.put(
+        "/api/auth/me/password", json={"actual": PASSWORD, "nueva": "otra-clave-1"}, headers=usuario
+    )
+    assert r.status_code == 204
+    assert login(PASSWORD).status_code == 401
+    assert login("otra-clave-1").status_code == 200
+
+
+def test_cambiar_password_exige_la_actual(client, usuario):
+    def cambiar(actual, nueva):
+        return client.put(
+            "/api/auth/me/password", json={"actual": actual, "nueva": nueva}, headers=usuario
+        )
+
+    r = cambiar("incorrecta", "otra-clave-1")
+    assert r.status_code == 400
+    assert "actual" in r.json()["detail"]
+    assert cambiar(PASSWORD, PASSWORD).status_code == 400  # igual que la actual
+    assert cambiar(PASSWORD, "corta").status_code == 422  # menos de 8

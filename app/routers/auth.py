@@ -9,8 +9,8 @@ from app.config import settings
 from app.cuentas import crear_cuenta
 from app.deps import DB, UsuarioActual
 from app.models import Usuario
-from app.schemas import Registro, Token, UsuarioOut
-from app.security import crear_token, verificar_password
+from app.schemas import CambioPassword, PerfilActualizar, Registro, Token, UsuarioOut
+from app.security import crear_token, hash_password, verificar_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -44,3 +44,28 @@ def login(db: DB, form: Annotated[OAuth2PasswordRequestForm, Depends()]):
 @router.get("/me", response_model=UsuarioOut)
 def me(usuario: UsuarioActual):
     return usuario
+
+
+@router.patch("/me", response_model=UsuarioOut)
+def actualizar_perfil(datos: PerfilActualizar, db: DB, usuario: UsuarioActual):
+    cambios = datos.model_dump(exclude_unset=True)
+    # null solo tiene sentido en el cinturón (quitarlo); un nombre nulo se ignora.
+    if cambios.get("nombre") is None:
+        cambios.pop("nombre", None)
+    for campo, valor in cambios.items():
+        setattr(usuario, campo, valor)
+    db.commit()
+    return usuario
+
+
+@router.put("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+def cambiar_password(datos: CambioPassword, db: DB, usuario: UsuarioActual):
+    # Pedir la actual evita que alguien con tu sesión abierta te deje fuera.
+    if not verificar_password(datos.actual, usuario.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La contraseña actual no es correcta")
+    if datos.nueva == datos.actual:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "La nueva contraseña debe ser distinta de la actual"
+        )
+    usuario.password_hash = hash_password(datos.nueva)
+    db.commit()
