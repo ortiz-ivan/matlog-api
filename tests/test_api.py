@@ -322,3 +322,75 @@ def test_seed_es_idempotente(client, db, usuario):
         ("Turno 1", "19:30:00"),
         ("Turno 2", "20:30:00"),
     ]
+
+
+# --- Gestión de usuarios (admin) ---
+
+
+def _nuevo_usuario(client, headers, **extra):
+    datos = {
+        "nombre": "Ana Pérez",
+        "username": "Ana.P",
+        "email": "ana@mail.com",
+        "password": PASSWORD,
+    } | extra
+    return client.post("/api/usuarios", json=datos, headers=headers)
+
+
+def test_admin_crea_usuario(client, admin):
+    r = _nuevo_usuario(client, admin, cinturon="AZUL")
+    assert r.status_code == 201, r.text
+    creado = r.json()
+    assert creado["username"] == "ana.p"
+    assert creado["cinturon"] == "AZUL"
+    assert creado["es_admin"] is False
+    assert creado["activo"] is True
+
+    # Puede entrar con la contraseña inicial que le dio el admin.
+    r = client.post("/api/auth/login", data={"username": "ana.p", "password": PASSWORD})
+    assert r.status_code == 200
+
+    assert client.get(f"/api/usuarios/{creado['id']}", headers=admin).json() == creado
+
+
+def test_admin_crea_otro_admin(client, admin):
+    assert _nuevo_usuario(client, admin, es_admin=True).json()["es_admin"] is True
+
+
+def test_admin_crea_usuario_duplicado(client, admin):
+    assert _nuevo_usuario(client, admin).status_code == 201
+    assert _nuevo_usuario(client, admin, email="otra@mail.com").status_code == 409
+    assert _nuevo_usuario(client, admin, username="otra").status_code == 409
+
+
+def test_usuario_normal_no_crea_usuarios(client, usuario):
+    assert _nuevo_usuario(client, usuario).status_code == 403
+    assert client.get("/api/usuarios/1", headers=usuario).status_code == 403
+
+
+def test_listar_usuarios_paginado_y_busqueda(client, admin):
+    for i in range(3):
+        _nuevo_usuario(client, admin, nombre=f"Zeta {i}", username=f"zeta{i}", email=f"z{i}@m.com")
+
+    r = client.get("/api/usuarios?limit=2", headers=admin).json()
+    assert r["total"] == 4  # admin + 3
+    assert [u["username"] for u in r["items"]] == ["admin", "zeta0"]
+
+    r = client.get("/api/usuarios?limit=2&offset=2", headers=admin).json()
+    assert [u["username"] for u in r["items"]] == ["zeta1", "zeta2"]
+
+    r = client.get("/api/usuarios?q=ZETA1", headers=admin).json()
+    assert [u["username"] for u in r["items"]] == ["zeta1"]
+
+
+def test_actualizar_usuario_ignora_nulos(client, admin):
+    creado = _nuevo_usuario(client, admin, cinturon="AZUL").json()
+    r = client.patch(
+        f"/api/usuarios/{creado['id']}",
+        json={"nombre": None, "activo": None, "cinturon": None},
+        headers=admin,
+    )
+    assert r.status_code == 200
+    assert r.json()["nombre"] == "Ana Pérez"
+    assert r.json()["activo"] is True
+    assert r.json()["cinturon"] is None

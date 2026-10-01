@@ -63,13 +63,24 @@ class UsuarioOut(UsuarioResumen):
     activo: bool
 
 
-class Registro(BaseModel):
+class UsuarioCrear(BaseModel):
     nombre: str = Field(min_length=1, max_length=100)
     username: Username
     email: EmailStr
     password: Password
     cinturon: Cinturon | None = None
+
+
+class Registro(UsuarioCrear):
+    """Alta pública: exige el código de invitación y nunca da admin."""
+
     codigo_invitacion: str
+
+
+class UsuarioNuevo(UsuarioCrear):
+    """Alta hecha por un admin."""
+
+    es_admin: bool = False
 
 
 class UsuarioActualizar(BaseModel):

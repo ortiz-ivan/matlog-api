@@ -3,13 +3,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.config import settings
+from app.cuentas import crear_cuenta
 from app.deps import DB, UsuarioActual
 from app.models import Usuario
 from app.schemas import Registro, Token, UsuarioOut
-from app.security import crear_token, hash_password, verificar_password
+from app.security import crear_token, verificar_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -22,21 +23,7 @@ def registro(datos: Registro, db: DB):
     if not codigo_valido:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Código de invitación incorrecto")
 
-    email = datos.email.lower()
-    if db.scalar(select(Usuario.id).where(Usuario.username == datos.username)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Ese nombre de usuario ya está en uso")
-    if db.scalar(select(Usuario.id).where(func.lower(Usuario.email) == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Ya existe una cuenta con ese email")
-
-    usuario = Usuario(
-        nombre=datos.nombre,
-        username=datos.username,
-        email=email,
-        password_hash=hash_password(datos.password),
-        cinturon=datos.cinturon,
-    )
-    db.add(usuario)
-    db.commit()
+    usuario = crear_cuenta(db, datos)
     return Token(access_token=crear_token(usuario.id))
 
 
