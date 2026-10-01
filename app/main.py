@@ -14,6 +14,11 @@ app = FastAPI(
     docs_url="/docs" if _docs else None,
     redoc_url="/redoc" if _docs else None,
     openapi_url="/openapi.json" if _docs else None,
+    # FastAPI exporta telemetría (OpenTelemetry) en cuanto el entorno define
+    # OTEL_EXPORTER_OTLP_ENDPOINT, y entre lo que registra están los errores de
+    # validación con los valores recibidos (p. ej. una contraseña demasiado corta).
+    # No la usamos: que ninguna variable de entorno pueda activarla.
+    telemetry={"auto_configure": False},
 )
 
 # Holgado para la petición más grande posible (una clase con notas de 5000 caracteres).

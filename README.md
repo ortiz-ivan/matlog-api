@@ -31,7 +31,20 @@ solo se sirve con `DOCS_HABILITADAS=true`; en producción debe ir a `false`.
 En `.env`: `DOCS_HABILITADAS=false` y `CORS_ORIGINS` con el dominio real del frontend
 (`https://...`, sin barra final).
 
+Antes de cada despliegue, comprobar que ninguna dependencia tiene vulnerabilidades
+conocidas (debe terminar en "No known vulnerabilities found"):
+
 ```bash
+uv export --no-dev --no-hashes --no-emit-project -q > requirements-audit.txt
+uvx pip-audit -r requirements-audit.txt --no-deps --disable-pip
+```
+
+En el servidor, instalar exactamente lo que fija `uv.lock` (con sus hashes) y sin las
+dependencias de desarrollo; `--locked` falla si el lock no corresponde a `pyproject.toml`:
+
+```bash
+uv sync --locked --no-dev
+uv run alembic upgrade head
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000   --no-server-header --proxy-headers --forwarded-allow-ips=127.0.0.1
 ```
 
