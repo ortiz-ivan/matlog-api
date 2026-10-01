@@ -295,10 +295,27 @@ def test_eliminar_tecnica_la_quita_de_las_clases(client, usuario, admin):
 def test_seed_es_idempotente(client, db, usuario):
     from app.seed import TECNICAS, TURNOS, cargar_datos_iniciales
 
-    _tecnica(client, usuario, "omoplata")  # ya existe (con otra capitalización)
+    # Ya existen (con otra capitalización): una sin descripción y otra escrita a mano.
+    omoplata = _tecnica(client, usuario, "omoplata")
+    datos = {
+        "nombre": "KNEE CUT",
+        "categoria": "PASAJE",
+        "posicion": "GUARDIA_ABIERTA",
+        "descripcion": "Nuestra versión",
+    }
+    knee_cut = client.post("/api/tecnicas", json=datos, headers=usuario).json()
 
-    assert cargar_datos_iniciales(db) == (len(TURNOS), len(TECNICAS) - 1)
-    assert cargar_datos_iniciales(db) == (0, 0)
+    # Crea las 45 restantes y solo completa la descripción vacía.
+    assert cargar_datos_iniciales(db) == (len(TURNOS), len(TECNICAS) - 2, 1)
+    assert cargar_datos_iniciales(db) == (0, 0, 0)
+
+    def descripcion(t):
+        return client.get(f"/api/tecnicas/{t['id']}", headers=usuario).json()["descripcion"]
+
+    assert descripcion(omoplata).startswith("Llave de hombro")
+    assert descripcion(knee_cut) == "Nuestra versión"
+    sin_descripcion = [t for t in client.get("/api/tecnicas", headers=usuario).json() if not t["descripcion"]]
+    assert sin_descripcion == []
 
     turnos = client.get("/api/turnos", headers=usuario).json()
     assert [(t["nombre"], t["hora_inicio"]) for t in turnos] == [
