@@ -171,14 +171,14 @@ def test_tecnica_video_url_invalida(client, usuario):
 # --- Clases ---
 
 
-def test_crear_clase_toma_horario_del_turno(client, usuario):
+def test_crear_clase_toma_horario_del_turno(client, usuario, admin):
     turno = _turno(client, usuario)
     armbar = _tecnica(client, usuario, "Armbar")
     triangulo = _tecnica(client, usuario, "Triángulo")
 
     clase = _clase(
         client,
-        usuario,
+        admin,
         fecha="2026-09-30",
         turno_id=turno["id"],
         tema="Guardia cerrada",
@@ -190,39 +190,46 @@ def test_crear_clase_toma_horario_del_turno(client, usuario):
     assert clase["hora_fin"] == "20:30:00"
     assert clase["modalidad"] == "GI"
     assert clase["instructor"] == "Juan"
-    assert clase["creado_por"]["nombre"] == "usuario"
+    assert clase["creado_por"]["nombre"] == "admin"
     assert clase["turno"]["nombre"] == "Noche"
     assert [t["nombre"] for t in clase["tecnicas"]] == ["Armbar", "Triángulo"]
 
+def test_solo_admins_registran_clases(client, usuario, admin):
+    turno = _turno(client, usuario)
+    datos = {"fecha": "2026-09-30", "turno_id": turno["id"], "tema": "Guardia"}
+    r = client.post("/api/clases", json=datos, headers=usuario)
+    assert r.status_code == 403
+    assert client.post("/api/clases", json=datos, headers=admin).status_code == 201
 
-def test_crear_clase_con_referencias_inexistentes(client, usuario):
+
+def test_crear_clase_con_referencias_inexistentes(client, usuario, admin):
     turno = _turno(client, usuario)
     base = {"fecha": "2026-09-30", "tema": "X"}
-    r = client.post("/api/clases", json=base | {"turno_id": 999}, headers=usuario)
+    r = client.post("/api/clases", json=base | {"turno_id": 999}, headers=admin)
     assert r.status_code == 422
     r = client.post(
-        "/api/clases", json=base | {"turno_id": turno["id"], "tecnica_ids": [999]}, headers=usuario
+        "/api/clases", json=base | {"turno_id": turno["id"], "tecnica_ids": [999]}, headers=admin
     )
     assert r.status_code == 422
 
 
-def test_filtrar_clases(client, usuario):
+def test_filtrar_clases(client, usuario, admin):
     manana = _turno(client, usuario, nombre="Mañana", hora_inicio="07:00", hora_fin="08:30")
     noche = _turno(client, usuario)
     omoplata = _tecnica(client, usuario, "Omoplata")
 
-    _clase(client, usuario, fecha="2026-09-01", turno_id=manana["id"], tema="Pasajes",
+    _clase(client, admin, fecha="2026-09-01", turno_id=manana["id"], tema="Pasajes",
            instructor="Juan")
     _clase(
         client,
-        usuario,
+        admin,
         fecha="2026-09-15",
         turno_id=noche["id"],
         tema="Guardia",
         modalidad="NO_GI",
         tecnica_ids=[omoplata["id"]],
     )
-    _clase(client, usuario, fecha="2026-09-30", turno_id=noche["id"], tema="Guardia cerrada")
+    _clase(client, admin, fecha="2026-09-30", turno_id=noche["id"], tema="Guardia cerrada")
 
     def temas(query=""):
         r = client.get(f"/api/clases{query}", headers=usuario)
@@ -241,12 +248,12 @@ def test_filtrar_clases(client, usuario):
     assert len(r["items"]) == 2
 
 
-def test_clases_de_una_tecnica_paginadas(client, usuario):
+def test_clases_de_una_tecnica_paginadas(client, usuario, admin):
     turno = _turno(client, usuario)
     omoplata = _tecnica(client, usuario, "Omoplata")
     for fecha in ("2026-09-02", "2026-09-30"):
         _clase(
-            client, usuario, fecha=fecha, turno_id=turno["id"], tema="Guardia",
+            client, admin, fecha=fecha, turno_id=turno["id"], tema="Guardia",
             tecnica_ids=[omoplata["id"]],
         )
 
@@ -266,7 +273,7 @@ def test_clases_de_una_tecnica_paginadas(client, usuario):
 def test_actualizar_y_eliminar_clase(client, usuario, admin):
     turno = _turno(client, usuario)
     armbar = _tecnica(client, usuario, "Armbar")
-    clase = _clase(client, usuario, fecha="2026-09-30", turno_id=turno["id"], tema="A",
+    clase = _clase(client, admin, fecha="2026-09-30", turno_id=turno["id"], tema="A",
                    tecnica_ids=[armbar["id"]])
 
     datos = {"fecha": "2026-09-30", "turno_id": turno["id"], "tema": "B", "tecnica_ids": []}
@@ -282,7 +289,7 @@ def test_actualizar_y_eliminar_clase(client, usuario, admin):
 def test_eliminar_tecnica_la_quita_de_las_clases(client, usuario, admin):
     turno = _turno(client, usuario)
     armbar = _tecnica(client, usuario, "Armbar")
-    clase = _clase(client, usuario, fecha="2026-09-30", turno_id=turno["id"], tema="A",
+    clase = _clase(client, admin, fecha="2026-09-30", turno_id=turno["id"], tema="A",
                    tecnica_ids=[armbar["id"]])
 
     assert client.delete(f"/api/tecnicas/{armbar['id']}", headers=admin).status_code == 204

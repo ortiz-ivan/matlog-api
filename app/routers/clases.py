@@ -109,8 +109,10 @@ def detalle(clase_id: int, db: DB, _: UsuarioActual):
 
 
 @router.post("", response_model=ClaseOut, status_code=status.HTTP_201_CREATED)
-def crear(datos: ClaseIn, db: DB, usuario: UsuarioActual):
-    clase = Clase(creado_por=usuario)
+def crear(datos: ClaseIn, db: DB, admin: Admin):
+    # Registrar clases es solo de admins; editarlas puede hacerlo cualquiera (p. ej. para
+    # añadir una técnica que faltó) y borrarlas vuelve a ser solo de admins.
+    clase = Clase(creado_por=admin)
     _aplicar(db, clase, datos)
     db.add(clase)
     db.commit()
