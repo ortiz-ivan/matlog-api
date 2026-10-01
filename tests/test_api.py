@@ -241,7 +241,7 @@ def test_filtrar_clases(client, usuario):
     assert len(r["items"]) == 2
 
 
-def test_detalle_tecnica_muestra_clases(client, usuario):
+def test_clases_de_una_tecnica_paginadas(client, usuario):
     turno = _turno(client, usuario)
     omoplata = _tecnica(client, usuario, "Omoplata")
     for fecha in ("2026-09-02", "2026-09-30"):
@@ -252,7 +252,15 @@ def test_detalle_tecnica_muestra_clases(client, usuario):
 
     r = client.get(f"/api/tecnicas/{omoplata['id']}", headers=usuario)
     assert r.status_code == 200
-    assert [c["fecha"] for c in r.json()["clases"]] == ["2026-09-30", "2026-09-02"]
+    assert "clases" not in r.json()  # se piden aparte, paginadas
+
+    r = client.get(f"/api/clases?tecnica_id={omoplata['id']}&limit=1", headers=usuario).json()
+    assert r["total"] == 2
+    assert [c["fecha"] for c in r["items"]] == ["2026-09-30"]
+    r = client.get(
+        f"/api/clases?tecnica_id={omoplata['id']}&limit=1&offset=1", headers=usuario
+    ).json()
+    assert [c["fecha"] for c in r["items"]] == ["2026-09-02"]
 
 
 def test_actualizar_y_eliminar_clase(client, usuario, admin):

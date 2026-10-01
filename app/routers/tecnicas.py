@@ -1,20 +1,15 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
 
 from app.deps import DB, Admin, UsuarioActual
-from app.models import Categoria, Clase, Posicion, Tecnica
-from app.schemas import TecnicaDetalle, TecnicaIn, TecnicaOut
+from app.models import Categoria, Posicion, Tecnica
+from app.schemas import TecnicaIn, TecnicaOut
 
 router = APIRouter(prefix="/api/tecnicas", tags=["tecnicas"])
 
 
 def _obtener(db: DB, tecnica_id: int) -> Tecnica:
-    tecnica = db.get(
-        Tecnica,
-        tecnica_id,
-        options=[selectinload(Tecnica.clases).selectinload(Clase.turno)],
-    )
+    tecnica = db.get(Tecnica, tecnica_id)
     if tecnica is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Técnica no encontrada")
     return tecnica
@@ -46,7 +41,8 @@ def listar(
     return db.scalars(consulta).all()
 
 
-@router.get("/{tecnica_id}", response_model=TecnicaDetalle)
+# Las clases en las que aparece se piden paginadas: GET /api/clases?tecnica_id=...
+@router.get("/{tecnica_id}", response_model=TecnicaOut)
 def detalle(tecnica_id: int, db: DB, _: UsuarioActual):
     return _obtener(db, tecnica_id)
 

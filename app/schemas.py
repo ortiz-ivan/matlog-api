@@ -168,6 +168,3 @@ class ClaseOut(ClaseResumen):
     video_url: str | None
     tecnicas: list[TecnicaResumen]
 
-
-class TecnicaDetalle(TecnicaOut):
-    clases: list[ClaseResumen]
