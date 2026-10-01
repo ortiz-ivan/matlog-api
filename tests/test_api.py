@@ -685,7 +685,15 @@ def test_cors_rechaza_otros_origenes(client):
 
 @pytest.mark.parametrize(
     "origen",
-    ["*", "http://localhost:5180/", "https://matlog.app/ruta", "localhost:5180", "https://*.app"],
+    [
+        "*",
+        "http://localhost:5180/",
+        "https://matlog.app/ruta",
+        "localhost:5180",
+        "https://*.app",
+        "https://<proyecto>.pages.dev",
+        "https://matlog.app:puerto",
+    ],
 )
 def test_config_rechaza_origenes_cors_invalidos(origen):
     with pytest.raises(ValidationError, match="Origen CORS inválido"):
@@ -949,3 +957,11 @@ def test_ip_desde_la_cabecera_del_proxy(client, usuario, monkeypatch):
         headers={"X-Real-IP": "198.51.100.7"},
     )
     assert otra.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "origen",
+    ["http://localhost:5180", "https://matlog.mi-cuenta.workers.dev", "https://matlog.app:8443"],
+)
+def test_config_acepta_origenes_cors_validos(origen):
+    assert Settings(cors_origins=[origen]).cors_origins == [origen]

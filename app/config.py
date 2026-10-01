@@ -9,8 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def _origen_valido(origen: str) -> str:
     # El navegador manda el Origin como esquema://host[:puerto] y CORS lo compara
     # literalmente: una barra final o una ruta harían que nunca coincidiera. "*" se
-    # rechaza porque permitiría a cualquier web llamar a la API.
-    if not re.fullmatch(r"https?://[^/*\s]+", origen):
+    # rechaza porque permitiría a cualquier web llamar a la API. Solo caracteres de un
+    # dominio: así tampoco pasa un valor de ejemplo como https://<proyecto>.pages.dev.
+    if not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?", origen):
         raise ValueError(
             f"Origen CORS inválido: {origen!r}. Formato: http(s)://host[:puerto], "
             "sin barra final ni comodines"
