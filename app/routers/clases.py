@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.deps import DB, Admin, UsuarioActual
 from app.models import Clase, Modalidad, Tecnica, Turno, clase_tecnicas
-from app.schemas import ClaseIn, ClaseOut, Pagina
+from app.schemas import BUSQUEDA_MAX, ClaseIn, ClaseOut, Pagina
 
 router = APIRouter(prefix="/api/clases", tags=["clases"])
 
@@ -66,7 +66,7 @@ def listar(
     hasta: date | None = None,
     turno_id: int | None = None,
     modalidad: Modalidad | None = None,
-    instructor: str | None = None,
+    instructor: Annotated[str | None, Query(max_length=BUSQUEDA_MAX)] = None,
     tecnica_id: int | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -81,7 +81,7 @@ def listar(
     if modalidad:
         filtros.append(Clase.modalidad == modalidad)
     if instructor:
-        filtros.append(Clase.instructor.ilike(f"%{instructor.strip()}%"))
+        filtros.append(Clase.instructor.icontains(instructor.strip(), autoescape=True))
     if tecnica_id:
         filtros.append(
             Clase.id.in_(

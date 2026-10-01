@@ -178,6 +178,7 @@ password_hash
 cinturon         BLANCO | AZUL | MORADO | MARRON | NEGRO (opcional)
 es_admin
 activo
+token_version    (va en el JWT; al incrementarla se invalidan sus tokens)
 creado_en
 actualizado_en
 ```
@@ -322,7 +323,8 @@ POST /api/auth/registro     (público, requiere código de invitación)
 POST /api/auth/login
 GET  /api/auth/me
 PATCH /api/auth/me          (nombre y cinturón propios)
-PUT  /api/auth/me/password  (exige la contraseña actual)
+PUT  /api/auth/me/password  (exige la contraseña actual; devuelve un token nuevo)
+POST /api/auth/renovar      (token nuevo con la caducidad renovada)
 ```
 
 ### Usuarios (admin)
@@ -371,13 +373,32 @@ Los filtros se resuelven en el backend, con paginación (`limit`, `offset`).
 ## 10. Seguridad mínima
 
 - Contraseñas con hashing seguro (Argon2).
-- JWT con expiración.
+- JWT HMAC (HS256/384/512) con `sub`, `ver`, `auth_time`, `iat` y `exp` obligatorios.
+  Dura 24 h (`JWT_EXPIRE_MINUTES`) y el frontend lo renueva mientras se usa la app, sin
+  pasar nunca de 7 días desde el login (`SESION_MAX_DIAS`). Es revocable:
+  cambiar o resetear la contraseña y desactivar la cuenta cierran todas las sesiones
+  abiertas del usuario (`token_version`).
+- Límite de intentos fallidos en login (por IP y por usuario) y en el código de invitación
+  (por IP): al superarlo se responde 429 con `Retry-After`. Se guarda en memoria, así que
+  asume un único proceso; con varios workers habría que llevarlo a Redis.
+- El login tarda lo mismo exista o no el usuario (y esté o no activo): no se puede averiguar
+  quién tiene cuenta midiendo el tiempo de respuesta.
+- CORS solo para los orígenes exactos de `CORS_ORIGINS` (se rechaza `*`), sin credenciales:
+  el token va en la cabecera `Authorization`, así que no hay cookies que proteger de CSRF.
+- El token se guarda en `localStorage`; lo protege la Content-Security-Policy estricta del
+  frontend, que impide ejecutar scripts inyectados (ver README de `matlog`).
 - Borrado y gestión de usuarios solo para admins.
 - Registro protegido por código de invitación.
 - Toda la configuración y los secretos en `.env` (nunca en el código ni en el repo).
-- Validación de inputs (Pydantic).
-- HTTPS en deployment.
-- CORS restringido al dominio del frontend.
+- Validación de inputs (Pydantic), con longitud máxima en todos los textos, listas y
+  búsquedas, y cuerpos de petición de 64 KB como máximo (413 si se superan). En las
+  búsquedas, `%` y `_` se buscan como texto, no como comodines.
+- `/docs`, `/redoc` y `/openapi.json` solo con `DOCS_HABILITADAS=true` (desactivadas en
+  producción).
+- Cabeceras de seguridad en todas las respuestas: `nosniff`, CSP `default-src 'none'`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` y
+  HSTS cuando llega por HTTPS.
+- HTTPS en deployment (ver README, sección Producción).
 
 ---
 

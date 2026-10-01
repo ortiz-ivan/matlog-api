@@ -14,9 +14,26 @@ from pydantic import (
 
 from app.models import Categoria, Cinturon, Modalidad, Posicion
 
+# Límites de lo que se acepta: acotan lo que cabe en la base de datos y lo que cuesta
+# procesar cada petición. TEXTO_LARGO es para notas y descripciones (columnas Text).
+URL_MAX = 500  # como las columnas video_url
+TEXTO_LARGO = 5000
+BUSQUEDA_MAX = 100
+PASSWORD_MAX = 128
+
+
+def _url_texto(url: HttpUrl) -> str:
+    # Se mide ya normalizada: un dominio con tildes pasa a punycode y crece.
+    texto = str(url)
+    if len(texto) > URL_MAX:
+        raise ValueError(f"La URL no puede superar {URL_MAX} caracteres")
+    return texto
+
+
 # Se valida como URL pero se guarda como texto plano.
-Url = Annotated[HttpUrl, AfterValidator(str)]
-Password = Annotated[str, Field(min_length=8, max_length=128)]
+Url = Annotated[HttpUrl, AfterValidator(_url_texto)]
+Password = Annotated[str, Field(min_length=8, max_length=PASSWORD_MAX)]
+TextoLargo = Annotated[str, Field(max_length=TEXTO_LARGO)]
 # Se normaliza a minúsculas antes de validar: "Ivan.Ortiz" y "ivan.ortiz" son el mismo.
 Username = Annotated[
     str,
@@ -74,7 +91,7 @@ class UsuarioCrear(BaseModel):
 class Registro(UsuarioCrear):
     """Alta pública: exige el código de invitación y nunca da admin."""
 
-    codigo_invitacion: str
+    codigo_invitacion: str = Field(max_length=128)
 
 
 class UsuarioNuevo(UsuarioCrear):
@@ -91,7 +108,7 @@ class PerfilActualizar(BaseModel):
 
 
 class CambioPassword(BaseModel):
-    actual: str
+    actual: str = Field(max_length=PASSWORD_MAX)
     nueva: Password
 
 
@@ -126,7 +143,7 @@ class TurnoIn(_ConHorario):
     nombre: str = Field(min_length=1, max_length=100)
     hora_inicio: time
     hora_fin: time
-    dias: list[TurnoDiaSchema] = []
+    dias: list[TurnoDiaSchema] = Field(default=[], max_length=7)
 
     @model_validator(mode="after")
     def _dias_sin_repetir(self) -> Self:
@@ -154,7 +171,7 @@ class TecnicaIn(BaseModel):
     nombre: str = Field(min_length=1, max_length=150)
     categoria: Categoria
     posicion: Posicion
-    descripcion: str | None = None
+    descripcion: TextoLargo | None = None
     video_url: Url | None = None
 
 
@@ -182,9 +199,9 @@ class ClaseIn(_ConHorario):
     modalidad: Modalidad = Modalidad.GI
     tema: str = Field(min_length=1, max_length=200)
     instructor: str | None = Field(default=None, max_length=100)
-    notas: str | None = None
+    notas: TextoLargo | None = None
     video_url: Url | None = None
-    tecnica_ids: list[int] = []
+    tecnica_ids: list[int] = Field(default=[], max_length=50)
 
 
 class ClaseResumen(Esquema):

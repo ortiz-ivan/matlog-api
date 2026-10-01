@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.deps import DB, Admin, UsuarioActual
 from app.models import Categoria, Posicion, Tecnica
-from app.schemas import TecnicaIn, TecnicaOut
+from app.schemas import BUSQUEDA_MAX, TecnicaIn, TecnicaOut
 
 router = APIRouter(prefix="/api/tecnicas", tags=["tecnicas"])
 
@@ -27,13 +29,13 @@ def _validar_nombre_unico(db: DB, nombre: str, excluir_id: int | None = None) ->
 def listar(
     db: DB,
     _: UsuarioActual,
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=BUSQUEDA_MAX)] = None,
     categoria: Categoria | None = None,
     posicion: Posicion | None = None,
 ):
     consulta = select(Tecnica).order_by(Tecnica.nombre)
     if q:
-        consulta = consulta.where(Tecnica.nombre.ilike(f"%{q.strip()}%"))
+        consulta = consulta.where(Tecnica.nombre.icontains(q.strip(), autoescape=True))
     if categoria:
         consulta = consulta.where(Tecnica.categoria == categoria)
     if posicion:

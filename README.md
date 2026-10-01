@@ -23,7 +23,24 @@ uv run python -m app.cli crear-usuario --nombre "Juan" --username juan --email j
 uv run fastapi dev app/main.py            # http://localhost:8000/docs
 ```
 
-En `/docs`, el botón **Authorize** permite hacer login con el nombre de usuario.
+En `/docs`, el botón **Authorize** permite hacer login con el nombre de usuario. La documentación
+solo se sirve con `DOCS_HABILITADAS=true`; en producción debe ir a `false`.
+
+## Producción
+
+En `.env`: `DOCS_HABILITADAS=false` y `CORS_ORIGINS` con el dominio real del frontend
+(`https://...`, sin barra final).
+
+```bash
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000   --no-server-header --proxy-headers --forwarded-allow-ips=127.0.0.1
+```
+
+- `--no-server-header`: no anunciar `server: uvicorn` (lo añade uvicorn, no la app).
+- `--proxy-headers` y `--forwarded-allow-ips` (la IP del proxy): para que el límite de
+  intentos use la IP real del cliente y la app sepa que la petición llegó por HTTPS
+  (de eso depende la cabecera HSTS).
+- Un solo proceso (sin `--workers`): el límite de intentos se guarda en memoria.
+- HTTPS lo pone el proxy (nginx, Caddy...), que es quien debe exponerse a internet.
 
 ## Tests
 

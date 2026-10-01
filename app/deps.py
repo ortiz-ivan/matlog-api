@@ -14,9 +14,10 @@ DB = Annotated[Session, Depends(get_db)]
 
 
 def usuario_actual(db: DB, token: Annotated[str, Depends(oauth2)]) -> Usuario:
-    usuario_id = leer_token(token)
-    usuario = db.get(Usuario, usuario_id) if usuario_id else None
-    if usuario is None or not usuario.activo:
+    datos = leer_token(token)
+    usuario = db.get(Usuario, datos.usuario_id) if datos else None
+    # Una versión distinta significa que el token fue invalidado (cambio de contraseña, etc.).
+    if usuario is None or not usuario.activo or usuario.token_version != datos.version:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "Credenciales inválidas",

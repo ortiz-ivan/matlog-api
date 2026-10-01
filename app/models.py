@@ -100,6 +100,8 @@ class Usuario(Timestamps, Base):
     # Puede gestionar usuarios y borrar registros. El resto de acciones son de todos.
     es_admin: Mapped[bool] = mapped_column(default=False, server_default=false())
     activo: Mapped[bool] = mapped_column(default=True, server_default=true())
+    # Va dentro de cada token; incrementarla invalida todos los tokens ya emitidos.
+    token_version: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class Turno(Timestamps, Base):

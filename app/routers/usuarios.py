@@ -6,8 +6,8 @@ from sqlalchemy import func, or_, select
 from app.cuentas import crear_cuenta
 from app.deps import DB, Admin
 from app.models import Usuario
-from app.schemas import Pagina, UsuarioActualizar, UsuarioNuevo, UsuarioOut
-from app.security import hash_password
+from app.schemas import BUSQUEDA_MAX, Pagina, UsuarioActualizar, UsuarioNuevo, UsuarioOut
+from app.security import hash_password, invalidar_tokens
 
 router = APIRouter(prefix="/api/usuarios", tags=["usuarios"])
 
@@ -23,14 +23,19 @@ def _obtener(db: DB, usuario_id: int) -> Usuario:
 def listar(
     db: DB,
     _: Admin,
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=BUSQUEDA_MAX)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     filtros = []
     if q and q.strip():
-        patron = f"%{q.strip()}%"
-        filtros.append(or_(Usuario.nombre.ilike(patron), Usuario.username.ilike(patron)))
+        texto = q.strip()
+        filtros.append(
+            or_(
+                Usuario.nombre.icontains(texto, autoescape=True),
+                Usuario.username.icontains(texto, autoescape=True),
+            )
+        )
 
     total = db.scalar(select(func.count(Usuario.id)).where(*filtros))
     usuarios = db.scalars(
@@ -73,6 +78,10 @@ def actualizar(usuario_id: int, datos: UsuarioActualizar, db: DB, admin: Admin):
 
     if password := cambios.pop("password", None):
         usuario.password_hash = hash_password(password)
+    # Al resetear la contraseña o desactivar la cuenta se cierran sus sesiones: si luego
+    # se reactiva, los tokens antiguos no vuelven a servir.
+    if password or cambios.get("activo") is False:
+        invalidar_tokens(usuario)
     for campo, valor in cambios.items():
         setattr(usuario, campo, valor)
     db.commit()

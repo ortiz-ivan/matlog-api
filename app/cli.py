@@ -19,7 +19,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models import Usuario
 from app.schemas import Username
-from app.security import hash_password
+from app.security import hash_password, invalidar_tokens
 from app.seed import cargar_datos_iniciales
 
 
@@ -99,8 +99,9 @@ def cambiar_password(username: str, password: str) -> None:
         if usuario is None:
             sys.exit(f"No existe el usuario {username}")
         usuario.password_hash = hash_password(password)
+        invalidar_tokens(usuario)
         db.commit()
-    print(f"Contraseña de {usuario.username} actualizada")
+    print(f"Contraseña de {usuario.username} actualizada; sus sesiones abiertas se han cerrado")
 
 
 def seed() -> None:

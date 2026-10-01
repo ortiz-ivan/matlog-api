@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app import limites
 from app.config import settings
 from app.db import Base, get_db
 from app.main import app
@@ -42,6 +43,13 @@ def db(engine):
         ) as sesion:
             yield sesion
         transaccion.rollback()
+
+
+@pytest.fixture(autouse=True)
+def _reiniciar_limites():
+    # Los contadores viven en memoria entre tests: cada uno empieza de cero.
+    limites.por_ip.reiniciar()
+    limites.por_usuario.reiniciar()
 
 
 @pytest.fixture
