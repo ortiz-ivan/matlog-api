@@ -12,7 +12,15 @@ from pydantic import (
     model_validator,
 )
 
-from app.models import Accion, Categoria, Cinturon, Modalidad, Posicion
+from app.models import (
+    GRADO_MAXIMO,
+    Accion,
+    Categoria,
+    Cinturon,
+    Modalidad,
+    Posicion,
+    grado_maximo,
+)
 
 # Límites de lo que se acepta: acotan lo que cabe en la base de datos y lo que cuesta
 # procesar cada petición. TEXTO_LARGO es para notas y descripciones (columnas Text).
@@ -72,12 +80,45 @@ class UsuarioResumen(Esquema):
     nombre: str
 
 
-class UsuarioOut(UsuarioResumen):
+class Companero(UsuarioResumen):
+    """Lo que ve cualquier usuario de los demás. Sin username ni email: el username es
+    la mitad de las credenciales y el email es un dato personal."""
+
+    cinturon: Cinturon | None
+    grado: int
+    fecha_ingreso: date | None
+
+
+class UsuarioOut(Companero):
     username: str
     email: str
-    cinturon: Cinturon | None
     es_admin: bool
     activo: bool
+
+
+# Datos de la academia: solo los asigna un admin (ver models.Usuario).
+CAMPOS_ACADEMIA = {"cinturon", "grado", "fecha_ingreso"}
+FECHA_INGRESO_MIN = date(1950, 1, 1)
+
+
+def _fecha_ingreso_valida(fecha: date | None) -> date | None:
+    if fecha is not None and not FECHA_INGRESO_MIN <= fecha <= date.today():
+        raise ValueError("La fecha de ingreso no puede ser futura ni anterior a 1950")
+    return fecha
+
+
+FechaIngreso = Annotated[date | None, AfterValidator(_fecha_ingreso_valida)]
+Grado = Annotated[int, Field(ge=0, le=GRADO_MAXIMO)]
+
+
+def comprobar_grado(cinturon: Cinturon | None, grado: int) -> None:
+    """ValueError si el cinturón no admite tantos grados."""
+    maximo = grado_maximo(cinturon)
+    if grado <= maximo:
+        return
+    if cinturon is None:
+        raise ValueError("Sin cinturón no puede haber grados")
+    raise ValueError(f"Ese cinturón admite como mucho {maximo} grados")
 
 
 class UsuarioCrear(BaseModel):
@@ -85,11 +126,10 @@ class UsuarioCrear(BaseModel):
     username: Username
     email: EmailStr
     password: Password
-    cinturon: Cinturon | None = None
 
 
 class Registro(UsuarioCrear):
-    """Alta pública: exige el código de invitación y nunca da admin."""
+    """Alta pública: exige el código de invitación, nunca da admin y no asigna cinturón."""
 
     codigo_invitacion: str = Field(max_length=128)
 
@@ -97,14 +137,21 @@ class Registro(UsuarioCrear):
 class UsuarioNuevo(UsuarioCrear):
     """Alta hecha por un admin."""
 
+    cinturon: Cinturon | None = None
+    grado: Grado = 0
+    fecha_ingreso: FechaIngreso = None
     es_admin: bool = False
+
+    @model_validator(mode="after")
+    def _grado_del_cinturon(self) -> Self:
+        comprobar_grado(self.cinturon, self.grado)
+        return self
 
 
 class PerfilActualizar(BaseModel):
-    """Lo que cada usuario puede cambiar de sí mismo."""
+    """Lo que cada usuario puede cambiar de sí mismo. El cinturón no: lo asigna un admin."""
 
     nombre: str | None = Field(default=None, min_length=1, max_length=100)
-    cinturon: Cinturon | None = None
 
 
 class CambioPassword(BaseModel):
@@ -118,6 +165,8 @@ class UsuarioActualizar(BaseModel):
     nombre: str | None = Field(default=None, min_length=1, max_length=100)
     password: Password | None = None
     cinturon: Cinturon | None = None
+    grado: Grado | None = None
+    fecha_ingreso: FechaIngreso = None
     es_admin: bool | None = None
     activo: bool | None = None
 

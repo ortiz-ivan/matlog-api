@@ -106,10 +106,9 @@ def me(usuario: UsuarioActual):
 @router.patch("/me", response_model=UsuarioOut)
 def actualizar_perfil(datos: PerfilActualizar, db: DB, usuario: UsuarioActual):
     antes = foto(usuario)
-    cambios = datos.model_dump(exclude_unset=True)
-    # null solo tiene sentido en el cinturón (quitarlo); un nombre nulo se ignora.
-    if cambios.get("nombre") is None:
-        cambios.pop("nombre", None)
+    # Un nombre nulo se ignora. El resto de campos (cinturón, admin…) ni siquiera
+    # llegan: PerfilActualizar no los tiene.
+    cambios = datos.model_dump(exclude_unset=True, exclude_none=True)
     for campo, valor in cambios.items():
         setattr(usuario, campo, valor)
     registrar(db, usuario, Accion.ACTUALIZAR, usuario, antes)

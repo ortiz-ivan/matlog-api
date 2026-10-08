@@ -70,6 +70,7 @@ Todo lo anterior, y además:
 - Gestionar los **turnos** y el horario semanal (días y modalidad).
 - **Borrar** clases y técnicas, y desactivar turnos (protege contra borrados accidentales).
 - Gestionar usuarios desde la pantalla "Usuarios" (menú de perfil): darlos de alta con una contraseña inicial, desactivar cuentas, resetear contraseñas y nombrar otros admins.
+- Asignar a cada usuario su **cinturón, grado y fecha de ingreso** a la academia. Solo un admin puede cambiarlos: se muestran a todos en "Compañeros".
 
 Un admin no puede quitarse el admin ni desactivarse a sí mismo, para que la plataforma nunca se quede sin administrador. El primer admin se crea por línea de comandos.
 
@@ -110,7 +111,7 @@ Las técnicas existen independientemente de las clases para poder reutilizarlas.
 - Registro con nombre, nombre de usuario, email, contraseña y **código de invitación** (definido en `.env` y compartido con los compañeros). Evita que cualquiera con el enlace cree una cuenta.
 - Login con **nombre de usuario** y contraseña → JWT. El username no distingue mayúsculas (se guarda en minúsculas) y admite 3–30 caracteres: letras, números, `.`, `-` y `_`. El email se guarda para una futura recuperación de contraseña, pero no sirve para entrar.
 - Permisos: usuario normal / admin.
-- Cada usuario cambia su nombre, cinturón y contraseña en "Mi perfil" (cambiar la contraseña exige la actual).
+- Cada usuario cambia su nombre y contraseña en "Mi perfil" (cambiar la contraseña exige la actual). El cinturón, el grado y la fecha de ingreso los asigna un admin.
 - Sin recuperación de contraseña por email: si alguien la olvida, un admin le pone una nueva.
 
 ### 5.2 Listado de clases
@@ -176,6 +177,8 @@ username         (único, minúsculas; para iniciar sesión)
 email            (único)
 password_hash
 cinturon         BLANCO | AZUL | MORADO | MARRON | NEGRO (opcional)
+grado            0-4 (0-6 en negro; 0 sin cinturón). Al cambiar de cinturón vuelve a 0
+fecha_ingreso    fecha de ingreso a la academia (opcional)
 es_admin
 activo
 token_version    (va en el JWT; al incrementarla se invalidan sus tokens)
@@ -322,7 +325,7 @@ PostgreSQL (desarrollo y producción)
 POST /api/auth/registro     (público, requiere código de invitación)
 POST /api/auth/login
 GET  /api/auth/me
-PATCH /api/auth/me          (nombre y cinturón propios)
+PATCH /api/auth/me          (nombre propio)
 PUT  /api/auth/me/password  (exige la contraseña actual; devuelve un token nuevo)
 POST /api/auth/renovar      (token nuevo con la caducidad renovada)
 ```
@@ -333,8 +336,16 @@ POST /api/auth/renovar      (token nuevo con la caducidad renovada)
 GET   /api/usuarios?q=ana&limit=20&offset=0   (paginado; busca por nombre o usuario)
 GET   /api/usuarios/{id}
 POST  /api/usuarios                           (alta con contraseña inicial; puede crear admins)
-PATCH /api/usuarios/{id}                      (nombre, cinturón, admin, activo, contraseña)
+PATCH /api/usuarios/{id}                      (nombre, cinturón, grado, ingreso, admin, activo, contraseña)
 ```
+
+### Compañeros
+
+```http
+GET   /api/companeros   (cualquier usuario; cuentas activas, sin username ni email)
+```
+
+Ordenados por cinturón, grado y antigüedad. Sin paginar: una academia tiene decenas de alumnos.
 
 ### Turnos
 

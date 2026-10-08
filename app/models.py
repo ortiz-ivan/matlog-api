@@ -96,8 +96,22 @@ clase_tecnicas = Table(
 )
 
 
+# Grados (stripes) que admite cada cinturón: 4 en los de color y hasta 6 en el negro
+# (después llega el coral). La base solo acota a 0-6; el límite por cinturón lo valida la API.
+GRADO_MAXIMO = 6
+
+
+def grado_maximo(cinturon: Cinturon | None) -> int:
+    if cinturon is None:
+        return 0
+    return GRADO_MAXIMO if cinturon is Cinturon.NEGRO else 4
+
+
 class Usuario(Timestamps, Base):
     __tablename__ = "usuarios"
+    __table_args__ = (
+        CheckConstraint(f"grado BETWEEN 0 AND {GRADO_MAXIMO}", name="grado_valido"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(100))
@@ -105,7 +119,11 @@ class Usuario(Timestamps, Base):
     username: Mapped[str] = mapped_column(String(30), unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Cinturón, grado y fecha de ingreso solo los cambia un admin: se muestran a todos en
+    # "Compañeros" y nadie debe poder subirse de cinturón a sí mismo.
     cinturon: Mapped[Cinturon | None] = mapped_column(_enum(Cinturon))
+    grado: Mapped[int] = mapped_column(default=0, server_default="0")
+    fecha_ingreso: Mapped[date | None] = mapped_column(Date)
     # Puede gestionar usuarios y borrar registros. El resto de acciones son de todos.
     es_admin: Mapped[bool] = mapped_column(default=False, server_default=false())
     activo: Mapped[bool] = mapped_column(default=True, server_default=true())

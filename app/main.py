@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import logs
 from app.config import settings
 from app.middleware import CabecerasSeguridad, LimiteCuerpo
-from app.routers import auditoria, auth, clases, tecnicas, turnos, usuarios
+from app.routers import auditoria, auth, clases, companeros, tecnicas, turnos, usuarios
 
 logs.configurar()
 
@@ -43,7 +43,7 @@ app.add_middleware(
 # que generan CORS (preflight) y LimiteCuerpo (413).
 app.add_middleware(CabecerasSeguridad)
 
-for modulo in (auth, usuarios, turnos, tecnicas, clases, auditoria):
+for modulo in (auth, usuarios, companeros, turnos, tecnicas, clases, auditoria):
     app.include_router(modulo.router)
 
 

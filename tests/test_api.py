@@ -489,21 +489,93 @@ def test_actualizar_usuario_ignora_nulos(client, admin):
     assert r.json()["cinturon"] is None
 
 
+def test_admin_asigna_cinturon_grado_e_ingreso(client, admin):
+    r = _nuevo_usuario(client, admin, cinturon="AZUL", grado=2, fecha_ingreso="2023-03-01")
+    assert r.status_code == 201, r.text
+    creado = r.json()
+    assert (creado["cinturon"], creado["grado"], creado["fecha_ingreso"]) == ("AZUL", 2, "2023-03-01")
+    ruta = f"/api/usuarios/{creado['id']}"
+
+    # Subir de cinturón sin indicar grado lo deja en 0.
+    r = client.patch(ruta, json={"cinturon": "MORADO"}, headers=admin)
+    assert (r.json()["cinturon"], r.json()["grado"]) == ("MORADO", 0)
+    r = client.patch(ruta, json={"grado": 3}, headers=admin)
+    assert r.json()["grado"] == 3
+    # Cambiar otra cosa no toca el grado; la fecha se puede quitar con null.
+    r = client.patch(ruta, json={"nombre": "Ana", "fecha_ingreso": None}, headers=admin)
+    assert (r.json()["grado"], r.json()["fecha_ingreso"]) == (3, None)
+
+
+@pytest.mark.parametrize(
+    "datos",
+    [
+        {"cinturon": "AZUL", "grado": 5},
+        {"cinturon": "NEGRO", "grado": 7},
+        {"grado": 1},
+        {"cinturon": "AZUL", "grado": -1},
+        {"fecha_ingreso": "2999-01-01"},
+        {"fecha_ingreso": "1900-01-01"},
+    ],
+    ids=["azul-5", "negro-7", "sin-cinturon", "negativo", "futura", "antigua"],
+)
+def test_datos_de_la_academia_invalidos(client, admin, datos):
+    assert _nuevo_usuario(client, admin, **datos).status_code == 422
+
+    creado = _nuevo_usuario(client, admin, username="otro", email="otro@m.com").json()
+    r = client.patch(f"/api/usuarios/{creado['id']}", json=datos, headers=admin)
+    assert r.status_code == 422, r.text
+
+
+def test_grado_se_valida_con_el_cinturon_guardado(client, admin):
+    creado = _nuevo_usuario(client, admin, cinturon="NEGRO", grado=6).json()
+    ruta = f"/api/usuarios/{creado['id']}"
+    # Quitar el cinturón resetea el grado; poner 6 grados a un marrón no se admite.
+    assert client.patch(ruta, json={"cinturon": "MARRON", "grado": 6}, headers=admin).status_code == 422
+    r = client.patch(ruta, json={"cinturon": None}, headers=admin)
+    assert (r.json()["cinturon"], r.json()["grado"]) == (None, 0)
+
+
+# --- Compañeros ---
+
+
+def test_companeros_ordenados_por_cinturon_sin_datos_privados(client, admin, usuario):
+    for nombre, extra in [
+        ("Blanca", {"cinturon": "BLANCO", "grado": 4}),
+        ("Negra", {"cinturon": "NEGRO", "grado": 1}),
+        ("Azul nueva", {"cinturon": "AZUL", "grado": 2, "fecha_ingreso": "2025-01-01"}),
+        ("Azul veterana", {"cinturon": "AZUL", "grado": 2, "fecha_ingreso": "2020-01-01"}),
+        ("Azul 3", {"cinturon": "AZUL", "grado": 3}),
+        ("Baja", {"cinturon": "MARRON"}),
+    ]:
+        username = nombre.lower().replace(" ", "")
+        _nuevo_usuario(client, admin, nombre=nombre, username=username, email=f"{username}@m.com", **extra)
+    baja = client.get("/api/usuarios?q=baja", headers=admin).json()["items"][0]
+    client.patch(f"/api/usuarios/{baja['id']}", json={"activo": False}, headers=admin)
+
+    r = client.get("/api/companeros", headers=usuario)
+    assert r.status_code == 200
+    # Cinturón, grado, antigüedad y nombre; las cuentas desactivadas no aparecen.
+    assert [c["nombre"] for c in r.json()] == [
+        "Negra", "Azul 3", "Azul veterana", "Azul nueva", "Blanca", "admin", "usuario"
+    ]
+    assert set(r.json()[0]) == {"id", "nombre", "cinturon", "grado", "fecha_ingreso"}
+
+
+def test_companeros_exige_sesion(client):
+    assert client.get("/api/companeros").status_code == 401
+
+
 # --- Mi perfil ---
 
 
 def test_actualizar_mi_perfil(client, usuario):
-    r = client.patch(
-        "/api/auth/me", json={"nombre": "Nuevo Nombre", "cinturon": "MORADO"}, headers=usuario
-    )
+    r = client.patch("/api/auth/me", json={"nombre": "Nuevo Nombre"}, headers=usuario)
     assert r.status_code == 200
     assert r.json()["nombre"] == "Nuevo Nombre"
-    assert r.json()["cinturon"] == "MORADO"
 
-    # Quitar el cinturón; un nombre nulo se ignora.
-    r = client.patch("/api/auth/me", json={"nombre": None, "cinturon": None}, headers=usuario)
+    # Un nombre nulo se ignora.
+    r = client.patch("/api/auth/me", json={"nombre": None}, headers=usuario)
     assert r.json()["nombre"] == "Nuevo Nombre"
-    assert r.json()["cinturon"] is None
 
 
 def test_perfil_no_permite_hacerse_admin(client, usuario):
@@ -511,6 +583,23 @@ def test_perfil_no_permite_hacerse_admin(client, usuario):
     assert r.status_code == 200
     assert r.json()["es_admin"] is False
     assert r.json()["activo"] is True
+
+
+def test_perfil_no_permite_cambiar_datos_de_la_academia(client, usuario):
+    cambios = {"cinturon": "NEGRO", "grado": 4, "fecha_ingreso": "2000-01-01"}
+    r = client.patch("/api/auth/me", json=cambios, headers=usuario)
+    assert r.status_code == 200
+    assert r.json()["cinturon"] is None
+    assert r.json()["grado"] == 0
+    assert r.json()["fecha_ingreso"] is None
+
+
+def test_registro_no_asigna_cinturon(client):
+    r = _registro(client, cinturon="NEGRO", grado=3)
+    assert r.status_code == 201
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    me = client.get("/api/auth/me", headers=headers).json()
+    assert (me["cinturon"], me["grado"]) == (None, 0)
 
 
 def test_cambiar_mi_password(client, usuario):

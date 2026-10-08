@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auditoria import registrar
 from app.models import Accion, Usuario
-from app.schemas import UsuarioCrear
+from app.schemas import CAMPOS_ACADEMIA, UsuarioCrear
 from app.security import hash_password
 
 
@@ -29,8 +29,9 @@ def crear_cuenta(
         username=datos.username,
         email=email,
         password_hash=hash_password(datos.password),
-        cinturon=datos.cinturon,
         es_admin=es_admin,
+        # Solo el alta de un admin los trae (UsuarioNuevo); en el registro no existen.
+        **datos.model_dump(include=CAMPOS_ACADEMIA),
     )
     db.add(usuario)
     registrar(db, autor or usuario, Accion.CREAR, usuario)

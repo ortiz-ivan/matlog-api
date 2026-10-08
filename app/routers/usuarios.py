@@ -8,7 +8,14 @@ from app.auditoria import foto, registrar
 from app.cuentas import crear_cuenta
 from app.deps import DB, Admin
 from app.models import Accion, Usuario
-from app.schemas import BUSQUEDA_MAX, Pagina, UsuarioActualizar, UsuarioNuevo, UsuarioOut
+from app.schemas import (
+    BUSQUEDA_MAX,
+    Pagina,
+    UsuarioActualizar,
+    UsuarioNuevo,
+    UsuarioOut,
+    comprobar_grado,
+)
 from app.security import hash_password, invalidar_tokens
 
 router = APIRouter(prefix="/api/usuarios", tags=["usuarios"])
@@ -66,11 +73,12 @@ def crear(datos: UsuarioNuevo, db: DB, admin: Admin):
 def actualizar(usuario_id: int, datos: UsuarioActualizar, db: DB, admin: Admin):
     usuario = _obtener(db, usuario_id)
 
-    # null solo tiene sentido en el cinturón (quitarlo); en el resto se ignora.
+    # null solo tiene sentido en el cinturón y la fecha de ingreso (quitarlos); en el
+    # resto se ignora.
     cambios = {
         campo: valor
         for campo, valor in datos.model_dump(exclude_unset=True).items()
-        if valor is not None or campo == "cinturon"
+        if valor is not None or campo in ("cinturon", "fecha_ingreso")
     }
     if usuario.id == admin.id and (
         cambios.get("es_admin") is False or cambios.get("activo") is False
@@ -79,6 +87,16 @@ def actualizar(usuario_id: int, datos: UsuarioActualizar, db: DB, admin: Admin):
         raise HTTPException(
             status.HTTP_409_CONFLICT, "No puedes quitarte el admin ni desactivarte a ti mismo"
         )
+
+    # Un cambio de cinturón empieza sin grados, salvo que se indiquen.
+    if "cinturon" in cambios and cambios["cinturon"] != usuario.cinturon:
+        cambios.setdefault("grado", 0)
+    try:
+        comprobar_grado(
+            cambios.get("cinturon", usuario.cinturon), cambios.get("grado", usuario.grado)
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
 
     antes = foto(usuario)
     if password := cambios.pop("password", None):
