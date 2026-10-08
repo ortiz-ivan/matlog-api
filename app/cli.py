@@ -16,8 +16,9 @@ from psycopg import sql
 from sqlalchemy import func, select
 
 from app.config import settings
+from app.auditoria import foto, registrar
 from app.db import SessionLocal
-from app.models import Usuario
+from app.models import Accion, Usuario
 from app.schemas import Username
 from app.security import hash_password, invalidar_tokens
 from app.seed import cargar_datos_iniciales
@@ -71,15 +72,15 @@ def crear_usuario(nombre: str, username: str, email: str, password: str, es_admi
             sys.exit(f"El username {username} ya está en uso")
         if db.scalar(select(Usuario.id).where(func.lower(Usuario.email) == email)):
             sys.exit(f"Ya existe una cuenta con el email {email}")
-        db.add(
-            Usuario(
-                nombre=nombre,
-                username=username,
-                email=email,
-                password_hash=hash_password(password),
-                es_admin=es_admin,
-            )
+        usuario = Usuario(
+            nombre=nombre,
+            username=username,
+            email=email,
+            password_hash=hash_password(password),
+            es_admin=es_admin,
         )
+        db.add(usuario)
+        registrar(db, None, Accion.CREAR, usuario)
         db.commit()
     print(f"Usuario {username} creado{' (admin)' if es_admin else ''}")
 
@@ -98,8 +99,10 @@ def cambiar_password(username: str, password: str) -> None:
         usuario = db.scalar(select(Usuario).where(Usuario.username == username.strip().lower()))
         if usuario is None:
             sys.exit(f"No existe el usuario {username}")
+        antes = foto(usuario)
         usuario.password_hash = hash_password(password)
         invalidar_tokens(usuario)
+        registrar(db, None, Accion.ACTUALIZAR, usuario, antes, extra={"password": "restablecida"})
         db.commit()
     print(f"Contraseña de {usuario.username} actualizada; sus sesiones abiertas se han cerrado")
 

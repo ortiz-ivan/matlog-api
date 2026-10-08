@@ -2,8 +2,9 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.auditoria import foto, registrar
 from app.deps import DB, Admin, UsuarioActual
-from app.models import Turno, TurnoDia
+from app.models import Accion, Turno, TurnoDia
 from app.schemas import TurnoIn, TurnoOut
 
 router = APIRouter(prefix="/api/turnos", tags=["turnos"])
@@ -52,25 +53,31 @@ def detalle(turno_id: int, db: DB, _: UsuarioActual):
 
 
 @router.post("", response_model=TurnoOut, status_code=status.HTTP_201_CREATED)
-def crear(datos: TurnoIn, db: DB, _: Admin):
+def crear(datos: TurnoIn, db: DB, admin: Admin):
     turno = Turno()
     _aplicar(turno, datos)
     db.add(turno)
+    registrar(db, admin, Accion.CREAR, turno)
     db.commit()
     return _obtener(db, turno.id)
 
 
 @router.put("/{turno_id}", response_model=TurnoOut)
-def actualizar(turno_id: int, datos: TurnoIn, db: DB, _: Admin):
+def actualizar(turno_id: int, datos: TurnoIn, db: DB, admin: Admin):
     turno = _obtener(db, turno_id)
+    antes = foto(turno)
     _aplicar(turno, datos)
     turno.activo = True
+    registrar(db, admin, Accion.ACTUALIZAR, turno, antes)
     db.commit()
     return _obtener(db, turno_id)
 
 
 @router.delete("/{turno_id}", status_code=status.HTTP_204_NO_CONTENT)
-def desactivar(turno_id: int, db: DB, _: Admin):
+def desactivar(turno_id: int, db: DB, admin: Admin):
     # Se desactiva en lugar de borrar para no perder las clases asociadas.
-    _obtener(db, turno_id).activo = False
+    turno = _obtener(db, turno_id)
+    antes = foto(turno)
+    turno.activo = False
+    registrar(db, admin, Accion.ACTUALIZAR, turno, antes)
     db.commit()

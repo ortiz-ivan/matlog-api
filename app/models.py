@@ -6,8 +6,10 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    JSON,
     Enum,
     ForeignKey,
+    Index,
     String,
     Table,
     Text,
@@ -16,6 +18,7 @@ from sqlalchemy import (
     func,
     true,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -44,6 +47,12 @@ class Categoria(str, enum.Enum):
     TRANSICION = "TRANSICION"
     CONTROL = "CONTROL"
     OTRA = "OTRA"
+
+
+class Accion(str, enum.Enum):
+    CREAR = "CREAR"
+    ACTUALIZAR = "ACTUALIZAR"
+    ELIMINAR = "ELIMINAR"
 
 
 class Posicion(str, enum.Enum):
@@ -170,3 +179,28 @@ class Clase(Timestamps, Base):
     tecnicas: Mapped[list[Tecnica]] = relationship(
         secondary=clase_tecnicas, back_populates="clases", order_by="Tecnica.nombre"
     )
+
+
+class Auditoria(Base):
+    """Un cambio en los datos: quién, cuándo, sobre qué y cómo estaba antes.
+
+    Solo se añaden filas; ningún endpoint las modifica ni las borra.
+    """
+
+    __tablename__ = "auditoria"
+    __table_args__ = (Index("ix_auditoria_entidad", "entidad", "entidad_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    # Quién hizo el cambio. Nulo: desde la línea de comandos (app.cli).
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    accion: Mapped[Accion] = mapped_column(_enum(Accion))
+    # "clase", "tecnica", "turno" o "usuario". Sin FK: la fila puede haberse borrado.
+    entidad: Mapped[str] = mapped_column(String(32))
+    entidad_id: Mapped[int]
+    # CREAR y ELIMINAR: todos los campos. ACTUALIZAR: {campo: [antes, después]}.
+    cambios: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
+
+    usuario: Mapped[Usuario | None] = relationship()

@@ -71,6 +71,15 @@ construye la imagen, ejecuta `alembic upgrade head` y, si la migración va bien 
 - **La imagen** instala solo lo que fija `uv.lock` y sin dependencias de desarrollo
   (`uv sync --locked --no-dev`), y la app corre con un usuario sin privilegios.
   `.dockerignore` impide que `.env` acabe dentro.
+- **Log de seguridad**: líneas `evento=...` del logger `matlog.seguridad` en la salida
+  estándar, que Railway guarda en los logs del servicio. Para buscarlas, filtrar por
+  `evento=login_fallido`, `evento=login_bloqueado`, `evento=acceso_denegado`,
+  `evento=usuario_modificado`, `evento=cambio`... Nunca contienen contraseñas, tokens
+  ni los valores de los cambios.
+- **Auditoría**: cada alta, cambio o borrado de clases, técnicas, turnos y usuarios
+  queda en la tabla `auditoria` (quién, cuándo, valor anterior y nuevo; al borrar, la
+  fila entera). Los admins la consultan en `GET /api/auditoria`. Los cambios hechos con
+  `app.cli` figuran sin usuario.
 
 ### Antes de cada despliegue
 
@@ -108,16 +117,18 @@ Usan la base `matlog_test` (`TEST_DATABASE_URL`), que se recrea al iniciar; cada
 
 ```text
 app/
-├── main.py          # app FastAPI, CORS y routers
+├── main.py          # app FastAPI, CORS, logs y routers
 ├── config.py        # configuración por variables de entorno
 ├── db.py            # engine, sesión y Base
-├── models.py        # tablas: usuarios, turnos, tecnicas, clases, clase_tecnicas
+├── models.py        # tablas: usuarios, turnos, tecnicas, clases, clase_tecnicas, auditoria
 ├── schemas.py       # modelos Pydantic de entrada/salida
 ├── security.py      # hashing de contraseñas y JWT
 ├── deps.py          # dependencias: sesión, usuario actual, solo admin
+├── auditoria.py     # registro de cambios en la tabla auditoria
+├── logs.py          # log de eventos de seguridad
 ├── cli.py           # crear-bd, crear-usuario y seed desde la terminal
 ├── seed.py          # turnos de la academia y biblioteca base de técnicas
-└── routers/         # auth, usuarios, turnos, tecnicas, clases
+└── routers/         # auth, usuarios, turnos, tecnicas, clases, auditoria
 alembic/             # migraciones
 tests/
 ```

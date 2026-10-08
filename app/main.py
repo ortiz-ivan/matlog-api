@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import logs
 from app.config import settings
 from app.middleware import CabecerasSeguridad, LimiteCuerpo
-from app.routers import auth, clases, tecnicas, turnos, usuarios
+from app.routers import auditoria, auth, clases, tecnicas, turnos, usuarios
+
+logs.configurar()
 
 # La documentación interactiva describe todos los endpoints y esquemas: útil en
 # desarrollo, pero en producción solo facilita el reconocimiento a un atacante.
@@ -40,7 +43,7 @@ app.add_middleware(
 # que generan CORS (preflight) y LimiteCuerpo (413).
 app.add_middleware(CabecerasSeguridad)
 
-for modulo in (auth, usuarios, turnos, tecnicas, clases):
+for modulo in (auth, usuarios, turnos, tecnicas, clases, auditoria):
     app.include_router(modulo.router)
 
 

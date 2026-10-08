@@ -965,3 +965,145 @@ def test_ip_desde_la_cabecera_del_proxy(client, usuario, monkeypatch):
 )
 def test_config_acepta_origenes_cors_validos(origen):
     assert Settings(cors_origins=[origen]).cors_origins == [origen]
+
+
+# --- Auditoría ---
+
+
+def _auditoria(client, headers, **filtros):
+    r = client.get("/api/auditoria", params=filtros, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()["items"]
+
+
+def _mi_id(client, headers):
+    return client.get("/api/auth/me", headers=headers).json()["id"]
+
+
+def test_auditoria_de_una_clase(client, usuario, admin):
+    turno = _turno(client, admin)
+    armbar = _tecnica(client, usuario, "Armbar")
+    clase = _clase(client, admin, fecha="2026-09-30", turno_id=turno["id"], tema="A",
+                   tecnica_ids=[armbar["id"]])
+    datos = {"fecha": "2026-09-30", "turno_id": turno["id"], "tema": "B", "tecnica_ids": []}
+    client.put(f"/api/clases/{clase['id']}", json=datos, headers=usuario)
+    # Guardar sin cambios no deja rastro.
+    client.put(f"/api/clases/{clase['id']}", json=datos, headers=usuario)
+    client.delete(f"/api/clases/{clase['id']}", headers=admin)
+
+    eliminar, actualizar, crear = _auditoria(client, admin, entidad="clase", entidad_id=clase["id"])
+    assert crear["accion"] == "CREAR"
+    assert crear["usuario"]["id"] == _mi_id(client, admin)
+    assert crear["cambios"]["tema"] == "A"
+
+    # Solo lo que cambia, con el valor anterior y el nuevo, y quién lo cambió.
+    assert actualizar["accion"] == "ACTUALIZAR"
+    assert actualizar["usuario"]["id"] == _mi_id(client, usuario)
+    assert actualizar["cambios"] == {"tema": ["A", "B"], "tecnica_ids": [[armbar["id"]], []]}
+
+    # Al borrar se guarda la clase entera, para poder recuperarla.
+    assert eliminar["accion"] == "ELIMINAR"
+    assert eliminar["cambios"]["tema"] == "B"
+    assert eliminar["cambios"]["fecha"] == "2026-09-30"
+    assert eliminar["cambios"]["turno_id"] == turno["id"]
+
+
+def test_auditoria_eliminar_tecnica_anota_sus_clases(client, usuario, admin):
+    turno = _turno(client, admin)
+    armbar = _tecnica(client, usuario, "Armbar")
+    clase = _clase(client, admin, fecha="2026-09-30", turno_id=turno["id"], tema="A",
+                   tecnica_ids=[armbar["id"]])
+    client.delete(f"/api/tecnicas/{armbar['id']}", headers=admin)
+
+    [eliminar, _] = _auditoria(client, admin, entidad="tecnica", entidad_id=armbar["id"])
+    assert eliminar["cambios"]["nombre"] == "Armbar"
+    assert eliminar["cambios"]["clase_ids"] == [clase["id"]]
+
+
+def test_auditoria_de_turnos(client, admin):
+    turno = _turno(client, admin, dias=[{"dia": 0, "modalidad": "GI"}])
+    datos = {"nombre": "Noche", "hora_inicio": "19:00", "hora_fin": "20:30",
+             "dias": [{"dia": 0, "modalidad": "NO_GI"}]}
+    client.put(f"/api/turnos/{turno['id']}", json=datos, headers=admin)
+    client.delete(f"/api/turnos/{turno['id']}", headers=admin)
+
+    desactivar, actualizar, _ = _auditoria(client, admin, entidad="turno")
+    assert actualizar["cambios"] == {"dias": [{"0": "GI"}, {"0": "NO_GI"}]}
+    assert desactivar["cambios"] == {"activo": [True, False]}
+
+
+def test_auditoria_nunca_guarda_contraseñas(client, admin, usuario):
+    usuario_id = _mi_id(client, usuario)
+    nueva = {"actual": PASSWORD, "nueva": "otra-clave-1"}
+    assert client.put("/api/auth/me/password", json=nueva, headers=usuario).status_code == 200
+    client.patch(f"/api/usuarios/{usuario_id}", json={"password": "clave-del-admin"},
+                 headers=admin)
+
+    reset, cambio = _auditoria(client, admin, entidad="usuario", entidad_id=usuario_id)
+    assert cambio["cambios"] == {"password": "cambiada"}
+    assert reset["cambios"] == {"password": "restablecida"}
+    assert reset["usuario"]["id"] == _mi_id(client, admin)
+
+    texto = client.get("/api/auditoria", headers=admin).text
+    assert "argon2" not in texto
+    assert "otra-clave-1" not in texto and "clave-del-admin" not in texto
+
+
+def test_auditoria_registro_y_alta_por_admin(client, admin):
+    r = _registro(client)
+    nuevo = _mi_id(client, {"Authorization": f"Bearer {r.json()['access_token']}"})
+    [alta] = _auditoria(client, admin, entidad="usuario", entidad_id=nuevo)
+    # En un registro público la autora es la propia cuenta.
+    assert alta["usuario"]["id"] == nuevo
+    assert alta["cambios"]["username"] == "ivan.ortiz"
+    assert "password_hash" not in alta["cambios"]
+
+    creado = _nuevo_usuario(client, admin).json()
+    [alta] = _auditoria(client, admin, entidad="usuario", entidad_id=creado["id"])
+    assert alta["usuario"]["id"] == _mi_id(client, admin)
+
+
+def test_auditoria_solo_para_admins(client, usuario):
+    assert client.get("/api/auditoria", headers=usuario).status_code == 403
+
+
+# --- Log de seguridad ---
+
+
+def _eventos(caplog):
+    return [r.getMessage() for r in caplog.records if r.name == "matlog.seguridad"]
+
+
+def test_log_de_logins(client, usuario, caplog):
+    caplog.set_level("INFO", logger="matlog.seguridad")
+    _login(client, "usuario", "incorrecta")
+    _login(client, "nadie", "x")
+    _login(client, "usuario", PASSWORD)
+
+    fallo, inexistente, ok = _eventos(caplog)
+    assert fallo.startswith("evento=login_fallido ")
+    assert 'motivo="password_incorrecta"' in fallo
+    assert 'motivo="usuario_inexistente"' in inexistente
+    assert ok.startswith("evento=login ")
+    assert "incorrecta" not in fallo.replace("password_incorrecta", "")
+
+
+def test_log_no_admite_lineas_inyectadas(client, caplog):
+    caplog.set_level("INFO", logger="matlog.seguridad")
+    _login(client, "x\nevento=login usuario=1", "x")
+    [linea] = _eventos(caplog)
+    assert "\n" not in linea
+    assert r'username="x\nevento=login usuario=1"' in linea
+
+
+def test_log_de_accesos_denegados_y_cambios_de_permisos(client, admin, usuario, caplog):
+    caplog.set_level("INFO", logger="matlog.seguridad")
+    client.get("/api/usuarios", headers=usuario)
+    usuario_id = _mi_id(client, usuario)
+    client.patch(f"/api/usuarios/{usuario_id}", json={"es_admin": True}, headers=admin)
+
+    eventos = _eventos(caplog)
+    assert any(e.startswith("evento=acceso_denegado ") and '"/api/usuarios"' in e
+               for e in eventos)
+    assert any(e.startswith("evento=usuario_modificado ") and '["es_admin"]' in e
+               for e in eventos)

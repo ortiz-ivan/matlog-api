@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Annotated, Self
 
 from pydantic import (
@@ -12,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.models import Categoria, Cinturon, Modalidad, Posicion
+from app.models import Accion, Categoria, Cinturon, Modalidad, Posicion
 
 # Límites de lo que se acepta: acotan lo que cabe en la base de datos y lo que cuesta
 # procesar cada petición. TEXTO_LARGO es para notas y descripciones (columnas Text).
@@ -221,3 +221,17 @@ class ClaseOut(ClaseResumen):
     video_url: str | None
     tecnicas: list[TecnicaResumen]
 
+
+
+# --- Auditoría ---
+
+
+class AuditoriaOut(Esquema):
+    id: int
+    creado_en: datetime
+    # None: cambio hecho desde la línea de comandos.
+    usuario: UsuarioResumen | None
+    accion: Accion
+    entidad: str
+    entidad_id: int
+    cambios: dict

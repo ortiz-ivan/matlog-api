@@ -1,9 +1,10 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app import logs
 from app.db import get_db
 from app.models import Usuario
 from app.security import leer_token
@@ -26,8 +27,12 @@ def usuario_actual(db: DB, token: Annotated[str, Depends(oauth2)]) -> Usuario:
     return usuario
 
 
-def solo_admin(usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
+def solo_admin(request: Request, usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
     if not usuario.es_admin:
+        # El frontend no ofrece estas acciones a quien no es admin: intentarlo es sospechoso.
+        logs.aviso(
+            "acceso_denegado", usuario=usuario.id, metodo=request.method, ruta=request.url.path
+        )
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo para administradores")
     return usuario
 

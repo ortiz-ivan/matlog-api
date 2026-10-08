@@ -3,9 +3,11 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 
+from app import logs
+from app.auditoria import foto, registrar
 from app.cuentas import crear_cuenta
 from app.deps import DB, Admin
-from app.models import Usuario
+from app.models import Accion, Usuario
 from app.schemas import BUSQUEDA_MAX, Pagina, UsuarioActualizar, UsuarioNuevo, UsuarioOut
 from app.security import hash_password, invalidar_tokens
 
@@ -54,8 +56,10 @@ def detalle(usuario_id: int, db: DB, _: Admin):
 
 
 @router.post("", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED)
-def crear(datos: UsuarioNuevo, db: DB, _: Admin):
-    return crear_cuenta(db, datos, es_admin=datos.es_admin)
+def crear(datos: UsuarioNuevo, db: DB, admin: Admin):
+    usuario = crear_cuenta(db, datos, autor=admin, es_admin=datos.es_admin)
+    logs.evento("usuario_creado", admin=admin.id, usuario=usuario.id, es_admin=usuario.es_admin)
+    return usuario
 
 
 @router.patch("/{usuario_id}", response_model=UsuarioOut)
@@ -76,6 +80,7 @@ def actualizar(usuario_id: int, datos: UsuarioActualizar, db: DB, admin: Admin):
             status.HTTP_409_CONFLICT, "No puedes quitarte el admin ni desactivarte a ti mismo"
         )
 
+    antes = foto(usuario)
     if password := cambios.pop("password", None):
         usuario.password_hash = hash_password(password)
     # Al resetear la contraseña o desactivar la cuenta se cierran sus sesiones: si luego
@@ -84,5 +89,14 @@ def actualizar(usuario_id: int, datos: UsuarioActualizar, db: DB, admin: Admin):
         invalidar_tokens(usuario)
     for campo, valor in cambios.items():
         setattr(usuario, campo, valor)
+    extra = {"password": "restablecida"} if password else None
+    registrar(db, admin, Accion.ACTUALIZAR, usuario, antes, extra=extra)
     db.commit()
+
+    # Los cambios de permisos y accesos se marcan aparte, como aviso, en el log.
+    sensibles = [c for c in ("es_admin", "activo") if c in cambios and antes[c] != cambios[c]]
+    if password:
+        sensibles.append("password")
+    if sensibles:
+        logs.aviso("usuario_modificado", admin=admin.id, usuario=usuario.id, campos=sensibles)
     return usuario

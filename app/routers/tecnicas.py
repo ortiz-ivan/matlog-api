@@ -3,8 +3,9 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
+from app.auditoria import foto, registrar
 from app.deps import DB, Admin, UsuarioActual
-from app.models import Categoria, Posicion, Tecnica
+from app.models import Accion, Categoria, Posicion, Tecnica
 from app.schemas import BUSQUEDA_MAX, TecnicaIn, TecnicaOut
 
 router = APIRouter(prefix="/api/tecnicas", tags=["tecnicas"])
@@ -50,25 +51,33 @@ def detalle(tecnica_id: int, db: DB, _: UsuarioActual):
 
 
 @router.post("", response_model=TecnicaOut, status_code=status.HTTP_201_CREATED)
-def crear(datos: TecnicaIn, db: DB, _: UsuarioActual):
+def crear(datos: TecnicaIn, db: DB, usuario: UsuarioActual):
     _validar_nombre_unico(db, datos.nombre)
     tecnica = Tecnica(**datos.model_dump())
     db.add(tecnica)
+    registrar(db, usuario, Accion.CREAR, tecnica)
     db.commit()
     return tecnica
 
 
 @router.put("/{tecnica_id}", response_model=TecnicaOut)
-def actualizar(tecnica_id: int, datos: TecnicaIn, db: DB, _: UsuarioActual):
+def actualizar(tecnica_id: int, datos: TecnicaIn, db: DB, usuario: UsuarioActual):
     tecnica = _obtener(db, tecnica_id)
     _validar_nombre_unico(db, datos.nombre, excluir_id=tecnica_id)
+    antes = foto(tecnica)
     for campo, valor in datos.model_dump().items():
         setattr(tecnica, campo, valor)
+    registrar(db, usuario, Accion.ACTUALIZAR, tecnica, antes)
     db.commit()
     return tecnica
 
 
 @router.delete("/{tecnica_id}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar(tecnica_id: int, db: DB, _: Admin):
-    db.delete(_obtener(db, tecnica_id))
+def eliminar(tecnica_id: int, db: DB, admin: Admin):
+    tecnica = _obtener(db, tecnica_id)
+    # Al borrarla desaparece de todas sus clases: se anota en cuáles estaba para poder
+    # restaurarla entera.
+    clase_ids = sorted(c.id for c in tecnica.clases)
+    registrar(db, admin, Accion.ELIMINAR, tecnica, extra={"clase_ids": clase_ids})
+    db.delete(tecnica)
     db.commit()

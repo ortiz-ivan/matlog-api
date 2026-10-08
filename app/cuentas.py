@@ -4,13 +4,20 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Usuario
+from app.auditoria import registrar
+from app.models import Accion, Usuario
 from app.schemas import UsuarioCrear
 from app.security import hash_password
 
 
-def crear_cuenta(db: Session, datos: UsuarioCrear, es_admin: bool = False) -> Usuario:
-    """Crea el usuario o responde 409 si el username o el email ya están en uso."""
+def crear_cuenta(
+    db: Session, datos: UsuarioCrear, autor: Usuario | None = None, es_admin: bool = False
+) -> Usuario:
+    """Crea el usuario o responde 409 si el username o el email ya están en uso.
+
+    autor: el admin que la da de alta; sin él es un registro público y en la auditoría
+    figura como autora la propia cuenta.
+    """
     email = datos.email.lower()
     if db.scalar(select(Usuario.id).where(Usuario.username == datos.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Ese nombre de usuario ya está en uso")
@@ -26,5 +33,6 @@ def crear_cuenta(db: Session, datos: UsuarioCrear, es_admin: bool = False) -> Us
         es_admin=es_admin,
     )
     db.add(usuario)
+    registrar(db, autor or usuario, Accion.CREAR, usuario)
     db.commit()
     return usuario

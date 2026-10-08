@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from app.auditoria import foto, registrar
 from app.deps import DB, Admin, UsuarioActual
-from app.models import Clase, Modalidad, Tecnica, Turno, clase_tecnicas
+from app.models import Accion, Clase, Modalidad, Tecnica, Turno, clase_tecnicas
 from app.schemas import BUSQUEDA_MAX, ClaseIn, ClaseOut, Pagina
 
 router = APIRouter(prefix="/api/clases", tags=["clases"])
@@ -115,19 +116,24 @@ def crear(datos: ClaseIn, db: DB, admin: Admin):
     clase = Clase(creado_por=admin)
     _aplicar(db, clase, datos)
     db.add(clase)
+    registrar(db, admin, Accion.CREAR, clase)
     db.commit()
     return _obtener(db, clase.id)
 
 
 @router.put("/{clase_id}", response_model=ClaseOut)
-def actualizar(clase_id: int, datos: ClaseIn, db: DB, _: UsuarioActual):
+def actualizar(clase_id: int, datos: ClaseIn, db: DB, usuario: UsuarioActual):
     clase = _obtener(db, clase_id)
+    antes = foto(clase)
     _aplicar(db, clase, datos)
+    registrar(db, usuario, Accion.ACTUALIZAR, clase, antes)
     db.commit()
     return _obtener(db, clase_id)
 
 
 @router.delete("/{clase_id}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar(clase_id: int, db: DB, _: Admin):
-    db.delete(_obtener(db, clase_id))
+def eliminar(clase_id: int, db: DB, admin: Admin):
+    clase = _obtener(db, clase_id)
+    registrar(db, admin, Accion.ELIMINAR, clase)
+    db.delete(clase)
     db.commit()
