@@ -9,6 +9,7 @@ from pydantic import (
     EmailStr,
     Field,
     HttpUrl,
+    StringConstraints,
     model_validator,
 )
 
@@ -17,6 +18,8 @@ from app.models import (
     Accion,
     Categoria,
     Cinturon,
+    EstadoParticipacion,
+    Medalla,
     Modalidad,
     Posicion,
     grado_maximo,
@@ -98,11 +101,11 @@ class UsuarioOut(Companero):
 
 # Datos de la academia: solo los asigna un admin (ver models.Usuario).
 CAMPOS_ACADEMIA = {"cinturon", "grado", "fecha_ingreso"}
-FECHA_INGRESO_MIN = date(1950, 1, 1)
+FECHA_MIN = date(1950, 1, 1)
 
 
 def _fecha_ingreso_valida(fecha: date | None) -> date | None:
-    if fecha is not None and not FECHA_INGRESO_MIN <= fecha <= date.today():
+    if fecha is not None and not FECHA_MIN <= fecha <= date.today():
         raise ValueError("La fecha de ingreso no puede ser futura ni anterior a 1950")
     return fecha
 
@@ -270,6 +273,83 @@ class ClaseOut(ClaseResumen):
     video_url: str | None
     tecnicas: list[TecnicaResumen]
 
+
+# --- Torneos y participaciones ---
+
+
+def _fecha_pasada(fecha: date) -> date:
+    # Se registran torneos ya disputados: con medalla o sin ella, el resultado ya existe.
+    if not FECHA_MIN <= fecha <= date.today():
+        raise ValueError("La fecha del torneo no puede ser futura ni anterior a 1950")
+    return fecha
+
+
+def _texto(maximo: int):
+    # Sin espacios sobrantes: cuentan para detectar duplicados ("Absoluto " = "Absoluto").
+    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=maximo)]
+
+
+class TorneoIn(BaseModel):
+    nombre: _texto(150)
+    fecha: Annotated[date, AfterValidator(_fecha_pasada)]
+    lugar: str | None = Field(default=None, max_length=150)
+
+
+class TorneoOut(Esquema):
+    id: int
+    nombre: str
+    fecha: date
+    lugar: str | None
+
+
+class ParticipacionIn(BaseModel):
+    torneo_id: int
+    modalidad: Modalidad = Modalidad.GI
+    categoria: _texto(100)
+    medalla: Medalla | None = None
+
+
+class ParticipacionNueva(ParticipacionIn):
+    # Solo un admin puede registrar la de otro; sin indicar, es la propia.
+    usuario_id: int | None = None
+
+
+class Rechazo(BaseModel):
+    motivo: str | None = Field(default=None, max_length=200)
+
+
+class ParticipacionPublica(Esquema):
+    """Lo que ven los compañeros: solo de participaciones aprobadas."""
+
+    id: int
+    torneo: TorneoOut
+    modalidad: Modalidad
+    categoria: str
+    medalla: Medalla | None
+
+
+class ParticipacionOut(ParticipacionPublica):
+    """La ven su autor y los admins, con el estado de la revisión."""
+
+    usuario: UsuarioResumen
+    estado: EstadoParticipacion
+    motivo_rechazo: str | None
+
+
+class Medallero(BaseModel):
+    oro: int = 0
+    plata: int = 0
+    bronce: int = 0
+    # Torneos distintos con alguna participación aprobada.
+    torneos: int = 0
+
+
+class CompaneroLista(Companero):
+    medallero: Medallero
+
+
+class FichaCompanero(CompaneroLista):
+    participaciones: list[ParticipacionPublica]
 
 
 # --- Auditoría ---

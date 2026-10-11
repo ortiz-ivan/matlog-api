@@ -558,11 +558,176 @@ def test_companeros_ordenados_por_cinturon_sin_datos_privados(client, admin, usu
     assert [c["nombre"] for c in r.json()] == [
         "Negra", "Azul 3", "Azul veterana", "Azul nueva", "Blanca", "admin", "usuario"
     ]
-    assert set(r.json()[0]) == {"id", "nombre", "cinturon", "grado", "fecha_ingreso"}
+    assert set(r.json()[0]) == {"id", "nombre", "cinturon", "grado", "fecha_ingreso", "medallero"}
 
 
 def test_companeros_exige_sesion(client):
     assert client.get("/api/companeros").status_code == 401
+
+
+# --- Torneos y participaciones ---
+
+
+def _torneo_nuevo(client, headers, **extra):
+    datos = {"nombre": "Open Asunción", "fecha": "2026-05-10", "lugar": "Asunción"} | extra
+    r = client.post("/api/torneos", json=datos, headers=headers)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _participar(client, headers, torneo, **extra):
+    datos = {"torneo_id": torneo["id"], "categoria": "Adulto azul pluma", "medalla": "ORO"} | extra
+    return client.post("/api/participaciones", json=datos, headers=headers)
+
+
+def _id_de(client, headers):
+    return client.get("/api/auth/me", headers=headers).json()["id"]
+
+
+def test_torneos_cualquiera_crea_solo_admins_corrigen(client, admin, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    r = client.post(
+        "/api/torneos", json={"nombre": " open ASUNCIÓN ", "fecha": "2026-05-10"}, headers=usuario
+    )
+    assert r.status_code == 409
+    # Otro año del mismo torneo sí.
+    _torneo_nuevo(client, usuario, fecha="2025-05-10")
+    assert client.post(
+        "/api/torneos", json={"nombre": "Futuro", "fecha": "2999-01-01"}, headers=usuario
+    ).status_code == 422
+
+    ruta = f"/api/torneos/{torneo['id']}"
+    cambio = {"nombre": "Open Asunción 2026", "fecha": "2026-05-10"}
+    assert client.put(ruta, json=cambio, headers=usuario).status_code == 403
+    assert client.put(ruta, json=cambio, headers=admin).json()["nombre"] == "Open Asunción 2026"
+    assert client.delete(ruta, headers=usuario).status_code == 403
+    assert client.delete(ruta, headers=admin).status_code == 204
+
+
+def test_torneo_con_participaciones_no_se_borra(client, admin, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    assert _participar(client, usuario, torneo).status_code == 201
+    assert client.delete(f"/api/torneos/{torneo['id']}", headers=admin).status_code == 409
+
+
+def test_participacion_pendiente_no_sale_hasta_aprobarla(client, admin, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    r = _participar(client, usuario, torneo)
+    assert r.status_code == 201, r.text
+    participacion = r.json()
+    assert participacion["estado"] == "PENDIENTE"
+    yo = participacion["usuario"]["id"]
+
+    def ficha():
+        return client.get(f"/api/companeros/{yo}", headers=admin).json()
+
+    assert ficha()["participaciones"] == []
+    assert ficha()["medallero"] == {"oro": 0, "plata": 0, "bronce": 0, "torneos": 0}
+
+    # Aparece en la cola de revisión y el admin la aprueba.
+    pendientes = client.get("/api/participaciones", headers=admin).json()
+    assert [p["id"] for p in pendientes] == [participacion["id"]]
+    r = client.post(f"/api/participaciones/{participacion['id']}/aprobar", headers=admin)
+    assert r.json()["estado"] == "APROBADA"
+
+    assert [p["categoria"] for p in ficha()["participaciones"]] == ["Adulto azul pluma"]
+    assert ficha()["medallero"] == {"oro": 1, "plata": 0, "bronce": 0, "torneos": 1}
+    lista = client.get("/api/companeros", headers=usuario).json()
+    assert next(c for c in lista if c["id"] == yo)["medallero"]["oro"] == 1
+    # La parte pública no muestra el estado de la revisión.
+    assert "estado" not in ficha()["participaciones"][0]
+
+
+def test_aprobada_solo_la_cambia_un_admin(client, admin, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    participacion = _participar(client, usuario, torneo).json()
+    ruta = f"/api/participaciones/{participacion['id']}"
+    client.post(f"{ruta}/aprobar", headers=admin)
+
+    cambio = {"torneo_id": torneo["id"], "categoria": "Absoluto", "medalla": "ORO"}
+    assert client.put(ruta, json=cambio, headers=usuario).status_code == 409
+    assert client.delete(ruta, headers=usuario).status_code == 409
+    # El admin la corrige y sigue aprobada.
+    r = client.put(ruta, json=cambio | {"medalla": "PLATA"}, headers=admin)
+    assert (r.json()["medalla"], r.json()["estado"]) == ("PLATA", "APROBADA")
+
+
+def test_rechazada_se_corrige_y_vuelve_a_revision(client, admin, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    participacion = _participar(client, usuario, torneo).json()
+    ruta = f"/api/participaciones/{participacion['id']}"
+    r = client.post(f"{ruta}/rechazar", json={"motivo": "Fue plata, no oro"}, headers=admin)
+    assert (r.json()["estado"], r.json()["motivo_rechazo"]) == ("RECHAZADA", "Fue plata, no oro")
+
+    mias = client.get("/api/participaciones/mias", headers=usuario).json()
+    assert mias[0]["estado"] == "RECHAZADA"
+
+    cambio = {"torneo_id": torneo["id"], "categoria": "Adulto azul pluma", "medalla": "PLATA"}
+    r = client.put(ruta, json=cambio, headers=usuario)
+    assert (r.json()["estado"], r.json()["motivo_rechazo"]) == ("PENDIENTE", None)
+    assert client.delete(ruta, headers=usuario).status_code == 204
+
+
+def test_participaciones_ajenas(client, admin, usuario, db):
+    torneo = _torneo_nuevo(client, usuario)
+    _crear_usuario(db, "otro")
+    otro = _headers(client, "otro")
+    otro_id = _id_de(client, otro)
+    participacion = _participar(client, usuario, torneo).json()
+    ruta = f"/api/participaciones/{participacion['id']}"
+
+    # Las pendientes de otro no se ven ni se tocan (404: ni siquiera se sabe que existen).
+    assert client.get(ruta, headers=otro).status_code == 404
+    assert client.delete(ruta, headers=otro).status_code == 404
+    assert client.get("/api/participaciones", headers=usuario).status_code == 403
+    assert client.post(f"{ruta}/aprobar", headers=usuario).status_code == 403
+    # Un alumno no registra participaciones de otros; un admin sí, y nacen aprobadas.
+    assert _participar(client, usuario, torneo, usuario_id=otro_id).status_code == 403
+    r = _participar(client, admin, torneo, usuario_id=otro_id)
+    assert (r.json()["usuario"]["id"], r.json()["estado"]) == (otro_id, "APROBADA")
+
+
+def test_participacion_duplicada_o_invalida(client, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    assert _participar(client, usuario, torneo).status_code == 201
+    # Misma categoría con otras mayúsculas o espacios: duplicada.
+    assert _participar(client, usuario, torneo, categoria=" adulto AZUL pluma ").status_code == 409
+    # En No-Gi o en el absoluto del mismo torneo, sí.
+    assert _participar(client, usuario, torneo, modalidad="NO_GI").status_code == 201
+    assert _participar(client, usuario, torneo, categoria="Absoluto", medalla=None).status_code == 201
+    assert _participar(client, usuario, {"id": 999999}).status_code == 422
+    assert _participar(client, usuario, torneo, categoria="   ").status_code == 422
+    assert _participar(client, usuario, torneo, medalla="DIAMANTE").status_code == 422
+
+
+def test_medallero_cuenta_torneos_distintos(client, admin):
+    yo = client.get("/api/auth/me", headers=admin).json()["id"]
+    t1 = _torneo_nuevo(client, admin)
+    t2 = _torneo_nuevo(client, admin, nombre="Copa Norte")
+    _participar(client, admin, t1)
+    _participar(client, admin, t1, modalidad="NO_GI", medalla="BRONCE")
+    _participar(client, admin, t2, medalla=None)
+    ficha = client.get(f"/api/companeros/{yo}", headers=admin).json()
+    assert ficha["medallero"] == {"oro": 1, "plata": 0, "bronce": 1, "torneos": 2}
+    assert len(ficha["participaciones"]) == 3
+
+
+def test_ficha_de_cuenta_desactivada(client, admin, usuario):
+    yo = client.get("/api/auth/me", headers=usuario).json()["id"]
+    client.patch(f"/api/usuarios/{yo}", json={"activo": False}, headers=admin)
+    assert client.get(f"/api/companeros/{yo}", headers=admin).status_code == 404
+    assert client.get("/api/companeros/999999", headers=admin).status_code == 404
+
+
+def test_auditoria_de_participaciones(client, admin, usuario):
+    torneo = _torneo_nuevo(client, usuario)
+    participacion = _participar(client, usuario, torneo).json()
+    client.post(f"/api/participaciones/{participacion['id']}/aprobar", headers=admin)
+    r = client.get(
+        f"/api/auditoria?entidad=participacion&entidad_id={participacion['id']}", headers=admin
+    )
+    cambios = [a["cambios"] for a in r.json()["items"]]
+    assert {"estado": ["PENDIENTE", "APROBADA"]}.items() <= cambios[0].items()
 
 
 # --- Mi perfil ---

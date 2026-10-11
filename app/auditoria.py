@@ -19,13 +19,17 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app import logs
-from app.models import Accion, Auditoria, Clase, Tecnica, Turno, Usuario
+from app.models import Accion, Auditoria, Clase, Participacion, Tecnica, Torneo, Turno, Usuario
+
+Auditable = Clase | Tecnica | Turno | Usuario | Torneo | Participacion
 
 _ENTIDADES: dict[type, str] = {
     Clase: "clase",
     Tecnica: "tecnica",
     Turno: "turno",
     Usuario: "usuario",
+    Torneo: "torneo",
+    Participacion: "participacion",
 }
 # El hash de la contraseña nunca se copia: un cambio de contraseña se anota sin valores.
 # Las marcas de tiempo ya están en la propia fila de auditoría.
@@ -40,7 +44,7 @@ def _json(valor: object) -> object:
     return valor
 
 
-def foto(obj: Clase | Tecnica | Turno | Usuario) -> dict[str, object]:
+def foto(obj: Auditable) -> dict[str, object]:
     """Los campos de la fila (y sus relaciones propias) como dict apto para JSON."""
     datos = {
         attr.key: _json(getattr(obj, attr.key))
@@ -58,7 +62,7 @@ def registrar(
     db: Session,
     autor: Usuario | None,
     accion: Accion,
-    obj: Clase | Tecnica | Turno | Usuario,
+    obj: Auditable,
     antes: dict[str, object] | None = None,
     extra: dict[str, object] | None = None,
 ) -> None:

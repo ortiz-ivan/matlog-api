@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/auditoria", tags=["auditoria"])
 def listar(
     db: DB,
     _: Admin,
-    entidad: Literal["clase", "tecnica", "turno", "usuario"] | None = None,
+    entidad: Literal["clase", "tecnica", "turno", "usuario", "torneo", "participacion"] | None = None,
     entidad_id: int | None = None,
     usuario_id: Annotated[int | None, Query(description="autor del cambio")] = None,
     accion: Accion | None = None,

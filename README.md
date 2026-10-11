@@ -15,8 +15,9 @@ Toda la configuración va en `.env` (nunca se sube al repo). `.env.example` es l
 ```bash
 uv sync                                   # instala dependencias
 cp .env.example .env                      # y completar los valores CAMBIAR
-uv run python -m app.cli crear-bd         # crea usuario y bases de .env (pide la contraseña del superusuario)
+uv run python -m app.cli crear-bd         # crea el rol propietario y las bases (pide la contraseña del superusuario)
 uv run alembic upgrade head               # crea las tablas
+uv run python -m app.cli crear-rol-app --superusuario postgres  # rol de la API: copiar la DATABASE_URL que imprime a .env
 uv run python -m app.cli seed             # turnos y técnicas iniciales (idempotente)
 uv run python -m app.cli crear-usuario --nombre "Juan" --username juan --email juan@mail.com --admin  # primer admin
 # uv run python -m app.cli cambiar-password --username juan  # si alguien olvida la contraseña
@@ -41,7 +42,8 @@ construye la imagen, ejecuta `alembic upgrade head` y, si la migración va bien 
 
    | Variable | Valor |
    |---|---|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (referencia a la base del proyecto) |
+   | `MIGRACIONES_DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (propietario: solo para migraciones) |
+   | `DATABASE_URL` | Al principio también `${{Postgres.DATABASE_URL}}`; ver el paso 6 |
    | `JWT_SECRET` | Nuevo: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` |
    | `CODIGO_INVITACION` | Nuevo, distinto del de desarrollo |
    | `CORS_ORIGINS` | `["https://<proyecto>.pages.dev"]` (el dominio del frontend) |
@@ -59,6 +61,43 @@ construye la imagen, ejecuta `alembic upgrade head` y, si la migración va bien 
    python -m app.cli seed
    python -m app.cli crear-usuario --nombre "Juan" --username juan --email juan@mail.com --admin
    ```
+
+6. Pasar la API a un rol con permisos mínimos (ver [Roles de la base de datos](#roles-de-la-base-de-datos)).
+   Desde `railway ssh`:
+
+   ```bash
+   python -m app.cli crear-rol-app
+   ```
+
+   Copiar la `DATABASE_URL` que imprime en la variable `DATABASE_URL` del servicio
+   (sustituyendo la referencia) y redesplegar.
+
+### Roles de la base de datos
+
+La API se conecta con un rol que solo puede leer y escribir filas:
+
+| | Propietario (`MIGRACIONES_DATABASE_URL`) | API (`DATABASE_URL`, `matlog_app`) |
+|---|---|---|
+| Crear, alterar, borrar o vaciar tablas | Sí | No |
+| Leer y escribir filas | Sí | Sí |
+| Tabla `auditoria` | Todo | Solo leer y añadir filas |
+| `alembic_version` | Todo | Nada |
+
+Así, aunque un fallo en la API permitiera ejecutar SQL arbitrario, no podría cambiar el
+esquema ni borrar o reescribir el historial de auditoría. Solo Alembic (en el pre-deploy)
+y `app.cli` cargan la URL del propietario; la API nunca la lee.
+
+`crear-rol-app` es idempotente: aplica los permisos sobre las tablas existentes y, con
+`DEFAULT PRIVILEGES`, sobre las que creen migraciones futuras. Cada ejecución genera una
+contraseña nueva, así que también sirve para **rotarla** (después hay que actualizar
+`DATABASE_URL`). Si una migración futura añade una tabla que deba ser de solo inserción
+como `auditoria`, hay que añadir su `REVOKE` a `_PERMISOS_APP` en `app/cli.py` y volver
+a ejecutar el comando.
+
+Límite conocido: en Railway el pre-deploy corre en el mismo contenedor, así que la
+variable del propietario está en el entorno del servicio. El rol protege frente a fallos
+de la aplicación (inyección SQL, bugs), no frente a alguien que consiga ejecutar comandos
+en el contenedor.
 
 ### Cómo está montado
 

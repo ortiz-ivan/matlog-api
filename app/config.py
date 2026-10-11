@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # Rol de la app: solo lee y escribe filas (ver ConfigMigraciones y app.cli crear-rol-app).
     database_url: UrlPostgres
     # Solo la usa pytest; nunca debe apuntar a la base de desarrollo o producción.
     test_database_url: UrlPostgres | None = None
@@ -75,6 +76,23 @@ class Settings(BaseSettings):
 
     # Orígenes exactos del frontend que pueden llamar a la API desde el navegador.
     cors_origins: list[OrigenCors] = Field(min_length=1)
+
+
+class ConfigMigraciones(BaseSettings):
+    """Conexión del rol propietario de las tablas, el único que puede cambiar el esquema.
+
+    Solo la cargan Alembic y app.cli, nunca la API: así un fallo en la app (una
+    inyección SQL, p. ej.) no puede alterar tablas ni reescribir la auditoría.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    migraciones_database_url: UrlPostgres
+
+
+@lru_cache
+def get_config_migraciones() -> ConfigMigraciones:
+    return ConfigMigraciones()  # type: ignore[call-arg]  (los valores vienen del entorno)
 
 
 @lru_cache

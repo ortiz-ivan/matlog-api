@@ -59,6 +59,8 @@ La plataforma la gestionan los propios alumnos: no hay rol de profesor. Todos lo
 - Buscar técnicas y ver en qué clases aparecieron.
 - **Editar** clases (p. ej. añadir una técnica que faltó o las notas).
 - **Crear y editar** técnicas.
+- Ver a sus compañeros (cinturón, antigüedad, torneos y medallas) en "Compañeros".
+- Registrar sus **participaciones en torneos** (y dar de alta el torneo si no existe). Quedan pendientes hasta que un admin las aprueba; mientras tanto, o si se rechazan, puede corregirlas o borrarlas. Una vez aprobadas, solo un admin las cambia.
 
 Cada clase guarda quién la registró (`creado_por`).
 
@@ -71,6 +73,8 @@ Todo lo anterior, y además:
 - **Borrar** clases y técnicas, y desactivar turnos (protege contra borrados accidentales).
 - Gestionar usuarios desde la pantalla "Usuarios" (menú de perfil): darlos de alta con una contraseña inicial, desactivar cuentas, resetear contraseñas y nombrar otros admins.
 - Asignar a cada usuario su **cinturón, grado y fecha de ingreso** a la academia. Solo un admin puede cambiarlos: se muestran a todos en "Compañeros".
+- **Revisar** las participaciones en torneos: aprobarlas o rechazarlas con un motivo. Las que registra un admin (suyas o de otro alumno) nacen aprobadas.
+- Corregir y borrar **torneos** (solo si no tienen participaciones).
 
 Un admin no puede quitarse el admin ni desactivarse a sí mismo, para que la plataforma nunca se quede sin administrador. El primer admin se crea por línea de comandos.
 
@@ -248,6 +252,38 @@ clase_id         → clases
 tecnica_id       → tecnicas
 ```
 
+### torneos
+
+```text
+id
+nombre
+fecha            (ya disputado: no puede ser futura)
+lugar            (opcional)
+creado_por_id    → usuarios
+creado_en
+actualizado_en
+```
+
+### participaciones
+
+Lo que hizo un alumno en un torneo. Única por usuario, torneo, modalidad y categoría.
+
+```text
+id
+usuario_id       → usuarios
+torneo_id        → torneos (sin cascada: un torneo con participaciones no se borra)
+modalidad        GI | NO_GI
+categoria        texto libre ("Adulto azul pluma", "Absoluto"...)
+medalla          ORO | PLATA | BRONCE (nula: sin medalla)
+estado           PENDIENTE | APROBADA | RECHAZADA
+motivo_rechazo   (opcional)
+revisado_por_id  → usuarios (el admin que la aprobó o rechazó)
+creado_en
+actualizado_en
+```
+
+Solo las APROBADAS se ven en Compañeros y cuentan en el medallero.
+
 ### Relaciones
 
 ```text
@@ -255,6 +291,8 @@ Usuario  1 ─── N Clases (creado_por)
 Turno    1 ─── N Clases
 Turno    1 ─── N TurnoDias (horario semanal)
 Clase    N ─── N Técnicas
+Usuario  1 ─── N Participaciones
+Torneo   1 ─── N Participaciones
 ```
 
 ---
@@ -342,10 +380,35 @@ PATCH /api/usuarios/{id}                      (nombre, cinturón, grado, ingreso
 ### Compañeros
 
 ```http
-GET   /api/companeros   (cualquier usuario; cuentas activas, sin username ni email)
+GET   /api/companeros        (cualquier usuario; cuentas activas, sin username ni email, con medallero)
+GET   /api/companeros/{id}   (ficha: datos públicos, medallero y participaciones aprobadas)
 ```
 
 Ordenados por cinturón, grado y antigüedad. Sin paginar: una academia tiene decenas de alumnos.
+El medallero (oro, plata, bronce y torneos distintos) solo cuenta participaciones aprobadas.
+
+### Torneos
+
+```http
+GET    /api/torneos?q=open
+GET    /api/torneos/{id}
+POST   /api/torneos         (cualquier usuario; 409 si ya existe con ese nombre y fecha)
+PUT    /api/torneos/{id}    (admin)
+DELETE /api/torneos/{id}    (admin; 409 si tiene participaciones)
+```
+
+### Participaciones
+
+```http
+GET    /api/participaciones/mias           (las propias, en cualquier estado)
+GET    /api/participaciones?estado=PENDIENTE   (admin; cola de revisión)
+GET    /api/participaciones/{id}           (la propia, o cualquiera si es admin; si no, 404)
+POST   /api/participaciones                (propia → PENDIENTE; un admin puede indicar usuario_id y nace APROBADA)
+PUT    /api/participaciones/{id}           (el autor si no está aprobada, y vuelve a PENDIENTE; o un admin)
+DELETE /api/participaciones/{id}           (igual que PUT)
+POST   /api/participaciones/{id}/aprobar   (admin)
+POST   /api/participaciones/{id}/rechazar  (admin; {"motivo": "..."} opcional)
+```
 
 ### Turnos
 

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Table,
     Text,
     Time,
+    UniqueConstraint,
     false,
     func,
     true,
@@ -199,6 +200,68 @@ class Clase(Timestamps, Base):
     )
 
 
+class Medalla(str, enum.Enum):
+    ORO = "ORO"
+    PLATA = "PLATA"
+    BRONCE = "BRONCE"
+
+
+class EstadoParticipacion(str, enum.Enum):
+    PENDIENTE = "PENDIENTE"
+    APROBADA = "APROBADA"
+    RECHAZADA = "RECHAZADA"
+
+
+class Torneo(Timestamps, Base):
+    """Un campeonato. Lo da de alta cualquiera al registrar su participación; corregirlo
+    o borrarlo es de admins."""
+
+    __tablename__ = "torneos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(150))
+    fecha: Mapped[date] = mapped_column(Date, index=True)
+    lugar: Mapped[str | None] = mapped_column(String(150))
+    creado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+
+    creado_por: Mapped[Usuario] = relationship()
+
+
+class Participacion(Timestamps, Base):
+    """Lo que hizo un alumno en un torneo y, si la ganó, su medalla.
+
+    La registra el propio alumno y queda PENDIENTE: no se ve en Compañeros hasta que un
+    admin la aprueba. Las que registra un admin nacen aprobadas.
+    """
+
+    __tablename__ = "participaciones"
+    __table_args__ = (
+        # Se puede competir en Gi y No-Gi, o en peso y absoluto, en el mismo torneo.
+        UniqueConstraint("usuario_id", "torneo_id", "modalidad", "categoria"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    # Sin borrado en cascada: un torneo con participaciones no se puede borrar.
+    torneo_id: Mapped[int] = mapped_column(ForeignKey("torneos.id"), index=True)
+    modalidad: Mapped[Modalidad] = mapped_column(_enum(Modalidad))
+    # Texto libre como lo nombra el torneo: "Adulto azul pluma", "Absoluto"...
+    categoria: Mapped[str] = mapped_column(String(100))
+    medalla: Mapped[Medalla | None] = mapped_column(_enum(Medalla))
+    estado: Mapped[EstadoParticipacion] = mapped_column(
+        _enum(EstadoParticipacion),
+        default=EstadoParticipacion.PENDIENTE,
+        server_default=EstadoParticipacion.PENDIENTE.value,
+        index=True,
+    )
+    motivo_rechazo: Mapped[str | None] = mapped_column(String(200))
+    # El admin que la aprobó o rechazó.
+    revisado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+
+    usuario: Mapped[Usuario] = relationship(foreign_keys=[usuario_id])
+    torneo: Mapped[Torneo] = relationship()
+
+
 class Auditoria(Base):
     """Un cambio en los datos: quién, cuándo, sobre qué y cómo estaba antes.
 
@@ -215,7 +278,8 @@ class Auditoria(Base):
     # Quién hizo el cambio. Nulo: desde la línea de comandos (app.cli).
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), index=True)
     accion: Mapped[Accion] = mapped_column(_enum(Accion))
-    # "clase", "tecnica", "turno" o "usuario". Sin FK: la fila puede haberse borrado.
+    # "clase", "tecnica", "turno", "usuario", "torneo" o "participacion". Sin FK: la
+    # fila puede haberse borrado.
     entidad: Mapped[str] = mapped_column(String(32))
     entidad_id: Mapped[int]
     # CREAR y ELIMINAR: todos los campos. ACTUALIZAR: {campo: [antes, después]}.
